@@ -3,10 +3,12 @@ package main
 import "syscall"
 
 type GenlMsghdr struct {
-	cmd uint8
-	version uint8
-	reserved uint16
+	Cmd uint8
+	Version uint8
+	Reserved uint16
 }
+
+const GENMSG_HDRLEN = 4
 
 // reserved static generic netlink identifiers:
 const (

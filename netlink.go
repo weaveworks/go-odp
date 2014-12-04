@@ -8,6 +8,10 @@ import (
 	"sync/atomic"
 )
 
+func align(n int, a int) int {
+	return (n + a - 1) & -a;
+}
+
 type NetlinkSocket struct {
 	fd int
 	addr *syscall.SockaddrNetlink
@@ -74,68 +78,38 @@ func (s *NetlinkSocket) recv(peer uint32) ([]byte, error) {
         }
 }
 
-type NlMsg struct {
-	buf []byte
+func NlMsghdrAt(data []byte) *syscall.NlMsghdr {
+	return (*syscall.NlMsghdr)(unsafe.Pointer(&data[0]))
 }
 
-func (msg NlMsg) NlMsghdrAt(pos int) *syscall.NlMsghdr {
-	return (*syscall.NlMsghdr)(unsafe.Pointer(&msg.buf[pos]))
+func GenlMsghdrAt(data []byte) *GenlMsghdr {
+	return (*GenlMsghdr)(unsafe.Pointer(&data[0]))
 }
 
-func (msg NlMsg) GenlMsghdrAt(pos int) *GenlMsghdr {
-	return (*GenlMsghdr)(unsafe.Pointer(&msg.buf[pos]))
+func RtAttrAt(data []byte) *syscall.RtAttr {
+	return (*syscall.RtAttr)(unsafe.Pointer(&data[0]))
 }
 
-func (msg NlMsg) RtAttrAt(pos int) *syscall.RtAttr {
-	return (*syscall.RtAttr)(unsafe.Pointer(&msg.buf[pos]))
+func NlMsgerrAt(data []byte) *syscall.NlMsgerr {
+	return (*syscall.NlMsgerr)(unsafe.Pointer(&data[0]))
 }
 
-func (s *NetlinkSocket) validateNlMsghdr(buf []byte, seq uint32) (*syscall.NlMsghdr, error) {
-	h := (*syscall.NlMsghdr)(unsafe.Pointer(&buf[0]))
-	if len(buf) < syscall.NLMSG_HDRLEN || len(buf) < int(h.Len) {
-		return nil, fmt.Errorf("truncated netlink message (got %d bytes, expected %d)", len(buf), h.Len)
-	}
-
-	if h.Pid != s.addr.Pid {
-		return nil, fmt.Errorf("netlink reply pid mismatch (got %d, expected %d)", h.Pid, s.addr.Pid)
-	}
-
-	if h.Seq != seq {
-		return nil, fmt.Errorf("netlink reply sequence number mismatch (got %d, expected %d)", h.Seq, seq)
-	}
-
-	payload := buf[syscall.NLMSG_HDRLEN:h.Len]
-
-	if h.Type == syscall.NLMSG_ERROR {
-		nlerr := (*syscall.NlMsgerr)(unsafe.Pointer(&payload[0]))
-
-		if nlerr.Error == 0 {
-			// An ack response
-			return nil, nil
-		}
-
-		return nil, fmt.Errorf("netlink error reply: %s",
-			syscall.Errno(-nlerr.Error).Error())
-	}
-
-	return h, nil
-}
 
 type NlMsgBuilder struct {
-	NlMsg
+	buf []byte
 }
 
 func NewNlMsgBuilder(flags uint16, typ uint16) *NlMsgBuilder {
 	buf := make([]byte, syscall.NLMSG_HDRLEN, syscall.Getpagesize())
-	nlmsg := &NlMsgBuilder{NlMsg{buf: buf}}
-	h := nlmsg.NlMsghdrAt(0)
+	nlmsg := &NlMsgBuilder{buf: buf}
+	h := NlMsghdrAt(buf)
 	h.Flags = flags
 	h.Type = typ
 	return nlmsg
 }
 
-func (nlmsg *NlMsgBuilder) Align(align int) {
-	nlmsg.buf = nlmsg.buf[:(len(nlmsg.buf) + align - 1) & -align]
+func (nlmsg *NlMsgBuilder) Align(a int) {
+	nlmsg.buf = nlmsg.buf[:align(len(nlmsg.buf), a)]
 }
 
 func (nlmsg *NlMsgBuilder) Grow(size uintptr) int {
@@ -147,7 +121,7 @@ func (nlmsg *NlMsgBuilder) Grow(size uintptr) int {
 var nextSeqNo uint32
 
 func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
-	h := nlmsg.NlMsghdrAt(0)
+	h := NlMsghdrAt(nlmsg.buf)
 	h.Len = uint32(len(nlmsg.buf))
 	seq = atomic.AddUint32(&nextSeqNo, 1)
 	h.Seq = seq
@@ -157,9 +131,10 @@ func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
 }
 
 func (nlmsg *NlMsgBuilder) AddGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
-	pos := nlmsg.Grow(unsafe.Sizeof(*res))
-	res = nlmsg.GenlMsghdrAt(pos)
-	res.cmd = cmd
+	nlmsg.Align(syscall.NLMSG_ALIGNTO)
+	pos := nlmsg.Grow(GENMSG_HDRLEN)
+	res = GenlMsghdrAt(nlmsg.buf[pos:])
+	res.Cmd = cmd
 	return
 }
 
@@ -171,7 +146,7 @@ type RtAttr struct {
 func (nlmsg *NlMsgBuilder) BeginRtAttr(typ uint16) (res RtAttr) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
 	res.pos = nlmsg.Grow(unsafe.Sizeof(*res.rta))
-	res.rta = nlmsg.RtAttrAt(res.pos)
+	res.rta = RtAttrAt(nlmsg.buf[res.pos:])
 	res.rta.Type = typ
 	return
 }
@@ -191,13 +166,99 @@ func (nlmsg *NlMsgBuilder) AddAttr(typ uint16, str string) {
 }
 
 
+func (s *NetlinkSocket) checkResponse(data []byte, expectedSeq uint32) error {
+	if len(data) < syscall.NLMSG_HDRLEN {
+		return fmt.Errorf("truncated netlink message header (got %d bytes)", len(data))
+	}
+
+	h := NlMsghdrAt(data)
+	if len(data) < int(h.Len) {
+		return fmt.Errorf("truncated netlink message (got %d bytes, expected %d)", len(data), h.Len)
+	}
+
+	if h.Pid != s.addr.Pid {
+		return fmt.Errorf("netlink reply pid mismatch (got %d, expected %d)", h.Pid, s.addr.Pid)
+	}
+
+	if h.Seq != expectedSeq {
+		return fmt.Errorf("netlink reply sequence number mismatch (got %d, expected %d)", h.Seq, expectedSeq)
+	}
+
+	payload := data[syscall.NLMSG_HDRLEN:h.Len]
+	if h.Type == syscall.NLMSG_ERROR {
+		nlerr := NlMsgerrAt(payload)
+
+		if nlerr.Error == 0 {
+			// An ack response
+			return nil
+		}
+
+		return fmt.Errorf("netlink error response: %s",
+			syscall.Errno(-nlerr.Error).Error())
+	}
+
+	if int(h.Len) > align(len(data), syscall.NLMSG_ALIGNTO) {
+		return fmt.Errorf("multiple netlink messages recieved")
+	}
+
+	return nil
+}
+
+type NlMsgButcher struct {
+	data []byte
+	pos int
+}
+
+func NewNlMsgButcher(data []byte) *NlMsgButcher {
+	return &NlMsgButcher{data: data, pos: 0}
+}
+
+func (nlmsg *NlMsgButcher) Align(a int) {
+	nlmsg.pos = align(nlmsg.pos, a)
+}
+
+func (nlmsg *NlMsgButcher) Advance(n int) error {
+	pos := nlmsg.pos + n
+	if pos > len(nlmsg.data) {
+		return fmt.Errorf("netlink response payload truncated (at %d, expected at least %d bytes)", nlmsg.pos, n)
+	}
+
+	nlmsg.pos = pos
+	return nil
+}
+
+func (nlmsg *NlMsgButcher) TakeNlMsghdr(expectType uint16) (*syscall.NlMsghdr, error) {
+	h := NlMsghdrAt(nlmsg.data)
+	nlmsg.pos += syscall.NLMSG_HDRLEN
+
+	if h.Type != expectType {
+		return nil, fmt.Errorf("netlink response has wrong type (got %d, expected %d)", h.Type, expectType)
+	}
+
+	return h, nil
+}
+
+func (nlmsg *NlMsgButcher) TakeGenlMsghdr(expectCmd uint8) (*GenlMsghdr, error) {
+	nlmsg.Align(syscall.NLMSG_ALIGNTO)
+	gh := GenlMsghdrAt(nlmsg.data[nlmsg.pos:])
+	if err := nlmsg.Advance(GENMSG_HDRLEN); err != nil {
+		return nil, err
+	}
+
+	if gh.Cmd != expectCmd {
+		return nil, fmt.Errorf("generic netlink response has wrong cmd (got %d, expected %d)", gh.Cmd, expectCmd)
+	}
+
+	return gh, nil
+}
+
 func (s *NetlinkSocket) resolveFamily() error {
-	nlmsg := NewNlMsgBuilder(syscall.NLM_F_REQUEST | syscall.NLM_F_ACK,
+	req := NewNlMsgBuilder(syscall.NLM_F_REQUEST | syscall.NLM_F_ACK,
 		GENL_ID_CTRL)
 
-	nlmsg.AddGenlMsghdr(CTRL_CMD_GETFAMILY)
-	nlmsg.AddAttr(CTRL_ATTR_FAMILY_NAME, "ovs_datapath")
-	b, seq := nlmsg.Finish()
+	req.AddGenlMsghdr(CTRL_CMD_GETFAMILY)
+	req.AddAttr(CTRL_ATTR_FAMILY_NAME, "ovs_datapath")
+	b, seq := req.Finish()
 
 	if err := s.send(b); err != nil {
 		return err
@@ -208,8 +269,16 @@ func (s *NetlinkSocket) resolveFamily() error {
 		return err
         }
 
-	_, err = s.validateNlMsghdr(rb, seq)
-	if err != nil {
+	if err = s.checkResponse(rb, seq); err != nil {
+		return err
+	}
+
+	resp := NewNlMsgButcher(rb)
+	if _, err := resp.TakeNlMsghdr(GENL_ID_CTRL); err != nil {
+		return err
+	}
+
+	if _, err := resp.TakeGenlMsghdr(CTRL_CMD_NEWFAMILY); err != nil {
 		return err
 	}
 
