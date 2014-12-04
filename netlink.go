@@ -157,7 +157,6 @@ func (s *NetlinkSocket) validateNlMsghdr(buf []byte, seq uint32) (*syscall.NlMsg
 
 type NlMsg struct {
 	buf []byte
-	Seq uint32
 }
 
 func (nlmsg *NlMsg) Header() *syscall.NlMsghdr {
@@ -185,11 +184,11 @@ func NewNlMsg(flags uint16, typ uint16) *NlMsg {
 
 var nextSeqNo uint32
 
-func (nlmsg *NlMsg) Finish() (res []byte) {
+func (nlmsg *NlMsg) Finish() (res []byte, seq uint32) {
 	h := nlmsg.Header()
 	h.Len = uint32(len(nlmsg.buf))
-	nlmsg.Seq = atomic.AddUint32(&nextSeqNo, 1)
-	h.Seq = nlmsg.Seq
+	seq = atomic.AddUint32(&nextSeqNo, 1)
+	h.Seq = seq
 	res = nlmsg.buf
 	nlmsg.buf = nil
 	return
@@ -237,7 +236,7 @@ func (s *NetlinkSocket) resolveFamily() {
 
 	nlmsg.AddGenlMsghdr(CTRL_CMD_GETFAMILY)
 	nlmsg.AddAttr(CTRL_ATTR_FAMILY_NAME, "ovs_datapath")
-	b := nlmsg.Finish()
+	b, seq := nlmsg.Finish()
 	fmt.Printf("DDD %v\n", b)
 
 	if err := s.send(b); err != nil {
@@ -249,7 +248,7 @@ func (s *NetlinkSocket) resolveFamily() {
                 panic(err)
         }
 
-	_, err = s.validateNlMsghdr(rb, nlmsg.Seq)
+	_, err = s.validateNlMsghdr(rb, seq)
 	if err != nil {
 		panic(err)
 	}
