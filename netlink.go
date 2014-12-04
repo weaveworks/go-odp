@@ -74,13 +74,27 @@ func (s *NetlinkSocket) recv(peer uint32) ([]byte, error) {
         }
 }
 
+type NlMsg struct {
+	buf []byte
+}
+
+func (msg NlMsg) NlMsghdrAt(pos int) *syscall.NlMsghdr {
+	return (*syscall.NlMsghdr)(unsafe.Pointer(&msg.buf[pos]))
+}
+
+func (msg NlMsg) GenlMsghdrAt(pos int) *GenlMsghdr {
+	return (*GenlMsghdr)(unsafe.Pointer(&msg.buf[pos]))
+}
+
+func (msg NlMsg) RtAttrAt(pos int) *syscall.RtAttr {
+	return (*syscall.RtAttr)(unsafe.Pointer(&msg.buf[pos]))
+}
+
 func (s *NetlinkSocket) validateNlMsghdr(buf []byte, seq uint32) (*syscall.NlMsghdr, error) {
 	h := (*syscall.NlMsghdr)(unsafe.Pointer(&buf[0]))
 	if len(buf) < syscall.NLMSG_HDRLEN || len(buf) < int(h.Len) {
 		return nil, fmt.Errorf("truncated netlink message (got %d bytes, expected %d)", len(buf), h.Len)
 	}
-
-	fmt.Printf("XXX %v\n", h)
 
 	if h.Pid != s.addr.Pid {
 		return nil, fmt.Errorf("netlink reply pid mismatch (got %d, expected %d)", h.Pid, s.addr.Pid)
@@ -107,46 +121,32 @@ func (s *NetlinkSocket) validateNlMsghdr(buf []byte, seq uint32) (*syscall.NlMsg
 	return h, nil
 }
 
-type NlMsg struct {
-	buf []byte
+type NlMsgBuilder struct {
+	NlMsg
 }
 
-func (msg NlMsg) NlMsghdrAt(pos int) *syscall.NlMsghdr {
-	return (*syscall.NlMsghdr)(unsafe.Pointer(&msg.buf[pos]))
-}
-
-func (msg NlMsg) GenlMsghdrAt(pos int) *GenlMsghdr {
-	return (*GenlMsghdr)(unsafe.Pointer(&msg.buf[pos]))
-}
-
-func (msg NlMsg) RtAttrAt(pos int) *syscall.RtAttr {
-	return (*syscall.RtAttr)(unsafe.Pointer(&msg.buf[pos]))
-}
-
-
-func (nlmsg *NlMsg) Align(align int) {
-	nlmsg.buf = nlmsg.buf[:(len(nlmsg.buf) + align - 1) & -align]
-}
-
-func (nlmsg *NlMsg) Grow(size uintptr) int {
-	pos := len(nlmsg.buf)
-	nlmsg.buf = nlmsg.buf[:pos + int(size)]
-	return pos
-}
-
-
-func NewNlMsg(flags uint16, typ uint16) *NlMsg {
+func NewNlMsgBuilder(flags uint16, typ uint16) *NlMsgBuilder {
 	buf := make([]byte, syscall.NLMSG_HDRLEN, syscall.Getpagesize())
-	nlmsg := &NlMsg{buf: buf}
+	nlmsg := &NlMsgBuilder{NlMsg{buf: buf}}
 	h := nlmsg.NlMsghdrAt(0)
 	h.Flags = flags
 	h.Type = typ
 	return nlmsg
 }
 
+func (nlmsg *NlMsgBuilder) Align(align int) {
+	nlmsg.buf = nlmsg.buf[:(len(nlmsg.buf) + align - 1) & -align]
+}
+
+func (nlmsg *NlMsgBuilder) Grow(size uintptr) int {
+	pos := len(nlmsg.buf)
+	nlmsg.buf = nlmsg.buf[:pos + int(size)]
+	return pos
+}
+
 var nextSeqNo uint32
 
-func (nlmsg *NlMsg) Finish() (res []byte, seq uint32) {
+func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
 	h := nlmsg.NlMsghdrAt(0)
 	h.Len = uint32(len(nlmsg.buf))
 	seq = atomic.AddUint32(&nextSeqNo, 1)
@@ -156,7 +156,7 @@ func (nlmsg *NlMsg) Finish() (res []byte, seq uint32) {
 	return
 }
 
-func (nlmsg *NlMsg) AddGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
+func (nlmsg *NlMsgBuilder) AddGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
 	pos := nlmsg.Grow(unsafe.Sizeof(*res))
 	res = nlmsg.GenlMsghdrAt(pos)
 	res.cmd = cmd
@@ -168,7 +168,7 @@ type RtAttr struct {
 	rta *syscall.RtAttr
 }
 
-func (nlmsg *NlMsg) BeginRtAttr(typ uint16) (res RtAttr) {
+func (nlmsg *NlMsgBuilder) BeginRtAttr(typ uint16) (res RtAttr) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
 	res.pos = nlmsg.Grow(unsafe.Sizeof(*res.rta))
 	res.rta = nlmsg.RtAttrAt(res.pos)
@@ -176,16 +176,15 @@ func (nlmsg *NlMsg) BeginRtAttr(typ uint16) (res RtAttr) {
 	return
 }
 
-func (nlmsg *NlMsg) FinishRtAttr(rta RtAttr) {
+func (nlmsg *NlMsgBuilder) FinishRtAttr(rta RtAttr) {
 	rta.rta.Len = uint16(len(nlmsg.buf) - rta.pos)
 }
 
-func (nlmsg *NlMsg) AddAttr(typ uint16, str string) {
+func (nlmsg *NlMsgBuilder) AddAttr(typ uint16, str string) {
 	rta := nlmsg.BeginRtAttr(typ)
 	nlmsg.Align(syscall.RTA_ALIGNTO)
 	l := len(nlmsg.buf)
 	n := copy(nlmsg.buf[l:cap(nlmsg.buf)], str)
-	fmt.Printf("XXX %d %d\n", l, n)
 	nlmsg.buf = nlmsg.buf[:l + n + 1]
 	nlmsg.buf[l + n] = 0
 	nlmsg.FinishRtAttr(rta)
@@ -193,13 +192,12 @@ func (nlmsg *NlMsg) AddAttr(typ uint16, str string) {
 
 
 func (s *NetlinkSocket) resolveFamily() {
-	nlmsg := NewNlMsg(syscall.NLM_F_REQUEST | syscall.NLM_F_ACK,
+	nlmsg := NewNlMsgBuilder(syscall.NLM_F_REQUEST | syscall.NLM_F_ACK,
 		GENL_ID_CTRL)
 
 	nlmsg.AddGenlMsghdr(CTRL_CMD_GETFAMILY)
 	nlmsg.AddAttr(CTRL_ATTR_FAMILY_NAME, "ovs_datapath")
 	b, seq := nlmsg.Finish()
-	fmt.Printf("DDD %v\n", b)
 
 	if err := s.send(b); err != nil {
                 panic(err)
