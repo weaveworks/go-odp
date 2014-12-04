@@ -44,17 +44,6 @@ func (s *NetlinkSocket) Close() {
         syscall.Close(s.fd)
 }
 
-// Round the length of a netlink message up to align it properly.
-func nlmsgAlign(len int) int {
-        return (len + syscall.NLMSG_ALIGNTO - 1) & -syscall.NLMSG_ALIGNTO
-}
-
-// Round the length of a netlink route attribute up to align it
-// properly.
-func rtaAlign(len int) int {
-        return (len + syscall.RTA_ALIGNTO - 1) & -syscall.RTA_ALIGNTO
-}
-
 type GenlMsghdr struct {
 	cmd uint8
 	version uint8
