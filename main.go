@@ -10,7 +10,9 @@ func main() {
                 panic(err)
         }
 
-	s.resolveFamily()
+	if err = s.resolveFamily(); err != nil {
+		panic(err)
+	}
 
 	s.Close()
 }

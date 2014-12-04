@@ -191,7 +191,7 @@ func (nlmsg *NlMsgBuilder) AddAttr(typ uint16, str string) {
 }
 
 
-func (s *NetlinkSocket) resolveFamily() {
+func (s *NetlinkSocket) resolveFamily() error {
 	nlmsg := NewNlMsgBuilder(syscall.NLM_F_REQUEST | syscall.NLM_F_ACK,
 		GENL_ID_CTRL)
 
@@ -200,16 +200,18 @@ func (s *NetlinkSocket) resolveFamily() {
 	b, seq := nlmsg.Finish()
 
 	if err := s.send(b); err != nil {
-                panic(err)
+		return err
         }
 
 	rb, err := s.recv(0)
         if err != nil {
-                panic(err)
+		return err
         }
 
 	_, err = s.validateNlMsghdr(rb, seq)
 	if err != nil {
-		panic(err)
+		return err
 	}
+
+	return nil
 }
