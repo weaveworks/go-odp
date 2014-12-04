@@ -111,24 +111,34 @@ type NlMsg struct {
 	buf []byte
 }
 
-func (nlmsg *NlMsg) Header() *syscall.NlMsghdr {
-	return (*syscall.NlMsghdr)(unsafe.Pointer(&nlmsg.buf[0]))
+func (msg NlMsg) NlMsghdrAt(pos int) *syscall.NlMsghdr {
+	return (*syscall.NlMsghdr)(unsafe.Pointer(&msg.buf[pos]))
 }
+
+func (msg NlMsg) GenlMsghdrAt(pos int) *GenlMsghdr {
+	return (*GenlMsghdr)(unsafe.Pointer(&msg.buf[pos]))
+}
+
+func (msg NlMsg) RtAttrAt(pos int) *syscall.RtAttr {
+	return (*syscall.RtAttr)(unsafe.Pointer(&msg.buf[pos]))
+}
+
 
 func (nlmsg *NlMsg) Align(align int) {
 	nlmsg.buf = nlmsg.buf[:(len(nlmsg.buf) + align - 1) & -align]
 }
 
-func (nlmsg *NlMsg) Alloc(size uintptr) unsafe.Pointer {
-	l := len(nlmsg.buf)
-	nlmsg.buf = nlmsg.buf[:l + int(size)]
-	return unsafe.Pointer(&nlmsg.buf[l])
+func (nlmsg *NlMsg) Grow(size uintptr) int {
+	pos := len(nlmsg.buf)
+	nlmsg.buf = nlmsg.buf[:pos + int(size)]
+	return pos
 }
+
 
 func NewNlMsg(flags uint16, typ uint16) *NlMsg {
 	buf := make([]byte, syscall.NLMSG_HDRLEN, syscall.Getpagesize())
 	nlmsg := &NlMsg{buf: buf}
-	h := nlmsg.Header()
+	h := nlmsg.NlMsghdrAt(0)
 	h.Flags = flags
 	h.Type = typ
 	return nlmsg
@@ -137,7 +147,7 @@ func NewNlMsg(flags uint16, typ uint16) *NlMsg {
 var nextSeqNo uint32
 
 func (nlmsg *NlMsg) Finish() (res []byte, seq uint32) {
-	h := nlmsg.Header()
+	h := nlmsg.NlMsghdrAt(0)
 	h.Len = uint32(len(nlmsg.buf))
 	seq = atomic.AddUint32(&nextSeqNo, 1)
 	h.Seq = seq
@@ -147,8 +157,8 @@ func (nlmsg *NlMsg) Finish() (res []byte, seq uint32) {
 }
 
 func (nlmsg *NlMsg) AddGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
-	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	res = (*GenlMsghdr)(nlmsg.Alloc(unsafe.Sizeof(*res)))
+	pos := nlmsg.Grow(unsafe.Sizeof(*res))
+	res = nlmsg.GenlMsghdrAt(pos)
 	res.cmd = cmd
 	return
 }
@@ -160,8 +170,8 @@ type RtAttr struct {
 
 func (nlmsg *NlMsg) BeginRtAttr(typ uint16) (res RtAttr) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	res.pos = len(nlmsg.buf)
-	res.rta = (*syscall.RtAttr)(nlmsg.Alloc(unsafe.Sizeof(*res.rta)))
+	res.pos = nlmsg.Grow(unsafe.Sizeof(*res.rta))
+	res.rta = nlmsg.RtAttrAt(res.pos)
 	res.rta.Type = typ
 	return
 }
