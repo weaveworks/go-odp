@@ -78,20 +78,20 @@ func (s *NetlinkSocket) recv(peer uint32) ([]byte, error) {
         }
 }
 
-func NlMsghdrAt(data []byte) *syscall.NlMsghdr {
-	return (*syscall.NlMsghdr)(unsafe.Pointer(&data[0]))
+func nlMsghdrAt(data []byte, pos int) *syscall.NlMsghdr {
+	return (*syscall.NlMsghdr)(unsafe.Pointer(&data[pos]))
 }
 
-func GenlMsghdrAt(data []byte) *GenlMsghdr {
-	return (*GenlMsghdr)(unsafe.Pointer(&data[0]))
+func genlMsghdrAt(data []byte, pos int) *GenlMsghdr {
+	return (*GenlMsghdr)(unsafe.Pointer(&data[pos]))
 }
 
-func RtAttrAt(data []byte) *syscall.RtAttr {
-	return (*syscall.RtAttr)(unsafe.Pointer(&data[0]))
+func rtAttrAt(data []byte, pos int) *syscall.RtAttr {
+	return (*syscall.RtAttr)(unsafe.Pointer(&data[pos]))
 }
 
-func NlMsgerrAt(data []byte) *syscall.NlMsgerr {
-	return (*syscall.NlMsgerr)(unsafe.Pointer(&data[0]))
+func nlMsgerrAt(data []byte, pos int) *syscall.NlMsgerr {
+	return (*syscall.NlMsgerr)(unsafe.Pointer(&data[pos]))
 }
 
 
@@ -102,7 +102,7 @@ type NlMsgBuilder struct {
 func NewNlMsgBuilder(flags uint16, typ uint16) *NlMsgBuilder {
 	buf := make([]byte, syscall.NLMSG_HDRLEN, syscall.Getpagesize())
 	nlmsg := &NlMsgBuilder{buf: buf}
-	h := NlMsghdrAt(buf)
+	h := nlMsghdrAt(buf, 0)
 	h.Flags = flags
 	h.Type = typ
 	return nlmsg
@@ -121,7 +121,7 @@ func (nlmsg *NlMsgBuilder) Grow(size uintptr) int {
 var nextSeqNo uint32
 
 func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
-	h := NlMsghdrAt(nlmsg.buf)
+	h := nlMsghdrAt(nlmsg.buf, 0)
 	h.Len = uint32(len(nlmsg.buf))
 	seq = atomic.AddUint32(&nextSeqNo, 1)
 	h.Seq = seq
@@ -133,7 +133,7 @@ func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
 func (nlmsg *NlMsgBuilder) AddGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
 	pos := nlmsg.Grow(GENMSG_HDRLEN)
-	res = GenlMsghdrAt(nlmsg.buf[pos:])
+	res = genlMsghdrAt(nlmsg.buf, pos)
 	res.Cmd = cmd
 	return
 }
@@ -146,7 +146,7 @@ type RtAttr struct {
 func (nlmsg *NlMsgBuilder) BeginRtAttr(typ uint16) (res RtAttr) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
 	res.pos = nlmsg.Grow(unsafe.Sizeof(*res.rta))
-	res.rta = RtAttrAt(nlmsg.buf[res.pos:])
+	res.rta = rtAttrAt(nlmsg.buf, res.pos)
 	res.rta.Type = typ
 	return
 }
@@ -171,7 +171,7 @@ func (s *NetlinkSocket) checkResponse(data []byte, expectedSeq uint32) error {
 		return fmt.Errorf("truncated netlink message header (got %d bytes)", len(data))
 	}
 
-	h := NlMsghdrAt(data)
+	h := nlMsghdrAt(data, 0)
 	if len(data) < int(h.Len) {
 		return fmt.Errorf("truncated netlink message (got %d bytes, expected %d)", len(data), h.Len)
 	}
@@ -186,7 +186,7 @@ func (s *NetlinkSocket) checkResponse(data []byte, expectedSeq uint32) error {
 
 	payload := data[syscall.NLMSG_HDRLEN:h.Len]
 	if h.Type == syscall.NLMSG_ERROR {
-		nlerr := NlMsgerrAt(payload)
+		nlerr := nlMsgerrAt(payload, 0)
 
 		if nlerr.Error == 0 {
 			// An ack response
@@ -228,7 +228,7 @@ func (nlmsg *NlMsgButcher) Advance(n int) error {
 }
 
 func (nlmsg *NlMsgButcher) TakeNlMsghdr(expectType uint16) (*syscall.NlMsghdr, error) {
-	h := NlMsghdrAt(nlmsg.data)
+	h := nlMsghdrAt(nlmsg.data, 0)
 	nlmsg.pos += syscall.NLMSG_HDRLEN
 
 	if h.Type != expectType {
@@ -240,7 +240,7 @@ func (nlmsg *NlMsgButcher) TakeNlMsghdr(expectType uint16) (*syscall.NlMsghdr, e
 
 func (nlmsg *NlMsgButcher) TakeGenlMsghdr(expectCmd uint8) (*GenlMsghdr, error) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	gh := GenlMsghdrAt(nlmsg.data[nlmsg.pos:])
+	gh := genlMsghdrAt(nlmsg.data, nlmsg.pos)
 	if err := nlmsg.Advance(GENMSG_HDRLEN); err != nil {
 		return nil, err
 	}
