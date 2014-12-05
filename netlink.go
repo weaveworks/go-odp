@@ -168,12 +168,12 @@ func (nlmsg *NlMsgBuilder) AddAttr(typ uint16, str string) {
 
 func (s *NetlinkSocket) checkResponse(data []byte, expectedSeq uint32) error {
 	if len(data) < syscall.NLMSG_HDRLEN {
-		return fmt.Errorf("truncated netlink message header (got %d bytes)", len(data))
+		return fmt.Errorf("truncated netlink message header (have %d bytes)", len(data))
 	}
 
 	h := nlMsghdrAt(data, 0)
 	if len(data) < int(h.Len) {
-		return fmt.Errorf("truncated netlink message (got %d bytes, expected %d)", len(data), h.Len)
+		return fmt.Errorf("truncated netlink message (have %d bytes, expected %d)", len(data), h.Len)
 	}
 
 	if h.Pid != s.addr.Pid {
@@ -217,8 +217,8 @@ func (nlmsg *NlMsgButcher) Align(a int) {
 	nlmsg.pos = align(nlmsg.pos, a)
 }
 
-func (nlmsg *NlMsgButcher) Advance(n int) error {
-	pos := nlmsg.pos + n
+func (nlmsg *NlMsgButcher) Advance(n uintptr) error {
+	pos := nlmsg.pos + int(n)
 	if pos > len(nlmsg.data) {
 		return fmt.Errorf("netlink response payload truncated (at %d, expected at least %d bytes)", nlmsg.pos, n)
 	}
@@ -252,6 +252,50 @@ func (nlmsg *NlMsgButcher) TakeGenlMsghdr(expectCmd uint8) (*GenlMsghdr, error) 
 	return gh, nil
 }
 
+func uint16At(data []byte, pos int) *uint16 {
+	return (*uint16)(unsafe.Pointer(&data[pos]))
+}
+
+type Attr struct {
+	val []byte
+}
+
+func (nlmsg *NlMsgButcher) checkData(l uintptr, obj string) error {
+	if nlmsg.pos + int(l) <= len(nlmsg.data) {
+		return nil
+	} else {
+		return fmt.Errorf("truncated %s (have %d bytes, expected %d)", obj, len(nlmsg.data) - nlmsg.pos, l)
+	}
+}
+
+func (nlmsg *NlMsgButcher) TakeAttrs() (attrs map[uint16]Attr, err error) {
+	attrs = make(map[uint16]Attr)
+	for {
+		apos := align(nlmsg.pos, syscall.RTA_ALIGNTO)
+		if len(nlmsg.data) <= apos {
+			return
+		}
+
+		nlmsg.pos = apos
+
+		var rta *syscall.RtAttr
+		if err = nlmsg.checkData(unsafe.Sizeof(*rta), "netlink attribute"); err != nil {
+			return
+		}
+
+		rta = rtAttrAt(nlmsg.data, nlmsg.pos)
+		rtaLen := uintptr(rta.Len)
+		if err = nlmsg.checkData(rtaLen, "netlink attribute"); err != nil {
+			return
+		}
+
+		valpos := align(nlmsg.pos + int(unsafe.Sizeof(*rta)),
+			syscall.RTA_ALIGNTO)
+		attrs[rta.Type] = Attr{nlmsg.data[valpos:nlmsg.pos + int(rta.Len)]}
+		nlmsg.pos += int(rtaLen)
+	}
+}
+
 func (s *NetlinkSocket) resolveFamily() error {
 	req := NewNlMsgBuilder(syscall.NLM_F_REQUEST | syscall.NLM_F_ACK,
 		GENL_ID_CTRL)
@@ -281,6 +325,13 @@ func (s *NetlinkSocket) resolveFamily() error {
 	if _, err := resp.TakeGenlMsghdr(CTRL_CMD_NEWFAMILY); err != nil {
 		return err
 	}
+
+	attrs, err := resp.TakeAttrs()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("XXX %v\n", attrs)
 
 	return nil
 }
