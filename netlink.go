@@ -132,7 +132,7 @@ func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
 
 func (nlmsg *NlMsgBuilder) AddGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	pos := nlmsg.Grow(GENMSG_HDRLEN)
+	pos := nlmsg.Grow(unsafe.Sizeof(*res))
 	res = genlMsghdrAt(nlmsg.buf, pos)
 	res.Cmd = cmd
 	return
@@ -241,7 +241,7 @@ func (nlmsg *NlMsgButcher) TakeNlMsghdr(expectType uint16) (*syscall.NlMsghdr, e
 func (nlmsg *NlMsgButcher) TakeGenlMsghdr(expectCmd uint8) (*GenlMsghdr, error) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
 	gh := genlMsghdrAt(nlmsg.data, nlmsg.pos)
-	if err := nlmsg.Advance(GENMSG_HDRLEN); err != nil {
+	if err := nlmsg.Advance(unsafe.Sizeof(*gh)); err != nil {
 		return nil, err
 	}
 
