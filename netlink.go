@@ -49,7 +49,6 @@ func (s *NetlinkSocket) Close() {
 }
 
 func (s *NetlinkSocket) send(buf []byte) error {
-	fmt.Printf("AAA %v\n", buf)
 	sa := syscall.SockaddrNetlink{
 		Family: syscall.AF_NETLINK,
 		Pid: 0,
@@ -261,12 +260,29 @@ func (nlmsg *NlMsgButcher) TakeGenlMsghdr(expectCmd uint8) (*GenlMsghdr, error) 
 	return gh, nil
 }
 
-func uint16At(data []byte, pos int) *uint16 {
-	return (*uint16)(unsafe.Pointer(&data[pos]))
+type Attrs map[uint16][]byte
+
+func (attrs Attrs) Get(typ uint16) ([]byte, error) {
+	val := attrs[typ]
+	if val == nil {
+		return nil, fmt.Errorf("missing attribute %d", typ)
+	}
+
+	return val, nil
 }
 
-type Attr struct {
-	val []byte
+func (attrs Attrs) GetUint16(typ uint16) (uint16, error) {
+	val, err := attrs.Get(typ)
+	if err != nil {
+		return 0, err
+	}
+
+	var dummy uint16
+	if len(val) != int(unsafe.Sizeof(dummy)) {
+		return 0, err
+	}
+
+	return *(*uint16)(unsafe.Pointer(&val[0])), nil
 }
 
 func (nlmsg *NlMsgButcher) checkData(l uintptr, obj string) error {
@@ -277,8 +293,8 @@ func (nlmsg *NlMsgButcher) checkData(l uintptr, obj string) error {
 	}
 }
 
-func (nlmsg *NlMsgButcher) TakeAttrs() (attrs map[uint16]Attr, err error) {
-	attrs = make(map[uint16]Attr)
+func (nlmsg *NlMsgButcher) TakeAttrs() (attrs Attrs, err error) {
+	attrs = make(Attrs)
 	for {
 		apos := align(nlmsg.pos, syscall.RTA_ALIGNTO)
 		if len(nlmsg.data) <= apos {
@@ -300,47 +316,50 @@ func (nlmsg *NlMsgButcher) TakeAttrs() (attrs map[uint16]Attr, err error) {
 
 		valpos := align(nlmsg.pos + int(unsafe.Sizeof(*rta)),
 			syscall.RTA_ALIGNTO)
-		attrs[rta.Type] = Attr{nlmsg.data[valpos:nlmsg.pos + int(rta.Len)]}
+		attrs[rta.Type] = nlmsg.data[valpos:nlmsg.pos + int(rta.Len)]
 		nlmsg.pos += int(rtaLen)
 	}
 }
 
-func (s *NetlinkSocket) resolveFamily() error {
+func (s *NetlinkSocket) lookupGenlFamily(name string) (uint16, error) {
 	req := NewNlMsgBuilder(syscall.NLM_F_REQUEST | syscall.NLM_F_ACK,
 		GENL_ID_CTRL)
 
 	req.AddGenlMsghdr(CTRL_CMD_GETFAMILY)
-	req.AddStringRtAttr(CTRL_ATTR_FAMILY_NAME, "ovs_datapath")
+	req.AddStringRtAttr(CTRL_ATTR_FAMILY_NAME, name)
 	b, seq := req.Finish()
 
 	if err := s.send(b); err != nil {
-		return err
+		return 0, err
         }
 
 	rb, err := s.recv(0)
         if err != nil {
-		return err
+		return 0, err
         }
 
 	if err = s.checkResponse(rb, seq); err != nil {
-		return err
+		return 0, err
 	}
 
 	resp := NewNlMsgButcher(rb)
 	if _, err := resp.TakeNlMsghdr(GENL_ID_CTRL); err != nil {
-		return err
+		return 0, err
 	}
 
 	if _, err := resp.TakeGenlMsghdr(CTRL_CMD_NEWFAMILY); err != nil {
-		return err
+		return 0, err
 	}
 
 	attrs, err := resp.TakeAttrs()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	fmt.Println("XXX %v\n", attrs)
+	res, err := attrs.GetUint16(CTRL_ATTR_FAMILY_ID)
+	if err != nil {
+		return 0, err
+	}
 
-	return nil
+	return res, nil
 }

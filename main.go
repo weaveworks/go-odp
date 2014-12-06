@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
         "syscall"
 )
 
@@ -10,9 +11,12 @@ func main() {
                 panic(err)
         }
 
-	if err = s.resolveFamily(); err != nil {
+	id, err := s.lookupGenlFamily("ovs_datapath")
+	if err != nil {
 		panic(err)
 	}
+
+	fmt.Printf("Family id %d\n", id)
 
 	s.Close()
 }
