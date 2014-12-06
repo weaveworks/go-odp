@@ -49,6 +49,7 @@ func (s *NetlinkSocket) Close() {
 }
 
 func (s *NetlinkSocket) send(buf []byte) error {
+	fmt.Printf("AAA %v\n", buf)
 	sa := syscall.SockaddrNetlink{
 		Family: syscall.AF_NETLINK,
 		Pid: 0,
@@ -100,7 +101,8 @@ type NlMsgBuilder struct {
 }
 
 func NewNlMsgBuilder(flags uint16, typ uint16) *NlMsgBuilder {
-	buf := make([]byte, syscall.NLMSG_HDRLEN, syscall.Getpagesize())
+	//buf := make([]byte, syscall.NLMSG_HDRLEN, syscall.Getpagesize())
+	buf := make([]byte, syscall.NLMSG_HDRLEN, syscall.NLMSG_HDRLEN)
 	nlmsg := &NlMsgBuilder{buf: buf}
 	h := nlMsghdrAt(buf, 0)
 	h.Flags = flags
@@ -108,13 +110,26 @@ func NewNlMsgBuilder(flags uint16, typ uint16) *NlMsgBuilder {
 	return nlmsg
 }
 
+// Expand the array underlying a slice to have capacity of at least l
+func expand(buf []byte, l int) []byte {
+	c := (cap(buf) + 1) * 3 / 2
+	for l > c { c = (c + 1) * 3 / 2 }
+	new := make([]byte, len(buf), c)
+	copy(new, buf)
+	return new
+}
+
 func (nlmsg *NlMsgBuilder) Align(a int) {
-	nlmsg.buf = nlmsg.buf[:align(len(nlmsg.buf), a)]
+	l := align(len(nlmsg.buf), a)
+	if l > cap(nlmsg.buf) { nlmsg.buf = expand(nlmsg.buf, l) }
+	nlmsg.buf = nlmsg.buf[:l]
 }
 
 func (nlmsg *NlMsgBuilder) Grow(size uintptr) int {
 	pos := len(nlmsg.buf)
-	nlmsg.buf = nlmsg.buf[:pos + int(size)]
+	l := pos + int(size)
+	if l > cap(nlmsg.buf) { nlmsg.buf = expand(nlmsg.buf, l) }
+	nlmsg.buf = nlmsg.buf[:l]
 	return pos
 }
 
@@ -140,31 +155,35 @@ func (nlmsg *NlMsgBuilder) AddGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
 
 type RtAttr struct {
 	pos int
-	rta *syscall.RtAttr
 }
 
 func (nlmsg *NlMsgBuilder) BeginRtAttr(typ uint16) (res RtAttr) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	res.pos = nlmsg.Grow(unsafe.Sizeof(*res.rta))
-	res.rta = rtAttrAt(nlmsg.buf, res.pos)
-	res.rta.Type = typ
+	var rta *syscall.RtAttr
+	res.pos = nlmsg.Grow(unsafe.Sizeof(*rta))
+	rta = rtAttrAt(nlmsg.buf, res.pos)
+	rta.Type = typ
 	return
 }
 
 func (nlmsg *NlMsgBuilder) FinishRtAttr(rta RtAttr) {
-	rta.rta.Len = uint16(len(nlmsg.buf) - rta.pos)
+	rtap := rtAttrAt(nlmsg.buf, rta.pos)
+	rtap.Len = uint16(len(nlmsg.buf) - rta.pos)
+}
+
+func (nlmsg *NlMsgBuilder) addStringZ(str string) {
+	l := len(str)
+	pos := nlmsg.Grow(uintptr(l) + 1)
+	copy(nlmsg.buf[pos:], str)
+	nlmsg.buf[pos + l] = 0
 }
 
 func (nlmsg *NlMsgBuilder) AddAttr(typ uint16, str string) {
 	rta := nlmsg.BeginRtAttr(typ)
 	nlmsg.Align(syscall.RTA_ALIGNTO)
-	l := len(nlmsg.buf)
-	n := copy(nlmsg.buf[l:cap(nlmsg.buf)], str)
-	nlmsg.buf = nlmsg.buf[:l + n + 1]
-	nlmsg.buf[l + n] = 0
+	nlmsg.addStringZ(str)
 	nlmsg.FinishRtAttr(rta)
 }
-
 
 func (s *NetlinkSocket) checkResponse(data []byte, expectedSeq uint32) error {
 	if len(data) < syscall.NLMSG_HDRLEN {
