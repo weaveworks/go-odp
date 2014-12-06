@@ -2,4 +2,3 @@ Do we need to grow buffer when reading?
 
 Do all family lookups from OVS
 
-Clean up rtattr building (function param?)

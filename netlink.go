@@ -153,22 +153,15 @@ func (nlmsg *NlMsgBuilder) AddGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
 	return
 }
 
-type RtAttr struct {
-	pos int
-}
-
-func (nlmsg *NlMsgBuilder) BeginRtAttr(typ uint16) (res RtAttr) {
+func (nlmsg *NlMsgBuilder) AddRtAttr(typ uint16, gen func()) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
 	var rta *syscall.RtAttr
-	res.pos = nlmsg.Grow(unsafe.Sizeof(*rta))
-	rta = rtAttrAt(nlmsg.buf, res.pos)
+	pos := nlmsg.Grow(unsafe.Sizeof(*rta))
+	nlmsg.Align(syscall.RTA_ALIGNTO)
+	gen()
+	rta = rtAttrAt(nlmsg.buf, pos)
 	rta.Type = typ
-	return
-}
-
-func (nlmsg *NlMsgBuilder) FinishRtAttr(rta RtAttr) {
-	rtap := rtAttrAt(nlmsg.buf, rta.pos)
-	rtap.Len = uint16(len(nlmsg.buf) - rta.pos)
+	rta.Len = uint16(len(nlmsg.buf) - pos)
 }
 
 func (nlmsg *NlMsgBuilder) addStringZ(str string) {
@@ -178,11 +171,8 @@ func (nlmsg *NlMsgBuilder) addStringZ(str string) {
 	nlmsg.buf[pos + l] = 0
 }
 
-func (nlmsg *NlMsgBuilder) AddAttr(typ uint16, str string) {
-	rta := nlmsg.BeginRtAttr(typ)
-	nlmsg.Align(syscall.RTA_ALIGNTO)
-	nlmsg.addStringZ(str)
-	nlmsg.FinishRtAttr(rta)
+func (nlmsg *NlMsgBuilder) AddStringRtAttr(typ uint16, str string) {
+	nlmsg.AddRtAttr(typ, func () { nlmsg.addStringZ(str) })
 }
 
 func (s *NetlinkSocket) checkResponse(data []byte, expectedSeq uint32) error {
@@ -320,7 +310,7 @@ func (s *NetlinkSocket) resolveFamily() error {
 		GENL_ID_CTRL)
 
 	req.AddGenlMsghdr(CTRL_CMD_GETFAMILY)
-	req.AddAttr(CTRL_ATTR_FAMILY_NAME, "ovs_datapath")
+	req.AddStringRtAttr(CTRL_ATTR_FAMILY_NAME, "ovs_datapath")
 	b, seq := req.Finish()
 
 	if err := s.send(b); err != nil {
