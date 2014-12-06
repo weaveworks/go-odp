@@ -174,6 +174,14 @@ func (nlmsg *NlMsgBuilder) AddStringRtAttr(typ uint16, str string) {
 	nlmsg.AddRtAttr(typ, func () { nlmsg.addStringZ(str) })
 }
 
+type NetlinkError struct {
+	Errno syscall.Errno
+}
+
+func (err NetlinkError) Error() string {
+	return fmt.Sprintf("netlink error response: %s", err.Errno.Error())
+}
+
 func (s *NetlinkSocket) checkResponse(data []byte, expectedSeq uint32) error {
 	if len(data) < syscall.NLMSG_HDRLEN {
 		return fmt.Errorf("truncated netlink message header (have %d bytes)", len(data))
@@ -201,8 +209,7 @@ func (s *NetlinkSocket) checkResponse(data []byte, expectedSeq uint32) error {
 			return nil
 		}
 
-		return fmt.Errorf("netlink error response: %s",
-			syscall.Errno(-nlerr.Error).Error())
+		return NetlinkError{syscall.Errno(-nlerr.Error)}
 	}
 
 	if int(h.Len) > align(len(data), syscall.NLMSG_ALIGNTO) {

@@ -11,12 +11,16 @@ func main() {
                 panic(err)
         }
 
-	id, err := s.lookupGenlFamily("ovs_datapath")
+	id, err := s.lookupGenlFamily("foobar")
 	if err != nil {
-		panic(err)
+		if err, ok := err.(NetlinkError); ok && err.Errno == syscall.ENOENT {
+			fmt.Printf("No such family\n")
+		} else {
+			panic(err)
+		}
+	} else {
+		fmt.Printf("Family id %d\n", id)
 	}
-
-	fmt.Printf("Family id %d\n", id)
 
 	s.Close()
 }
