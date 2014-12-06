@@ -17,7 +17,7 @@ type NetlinkSocket struct {
 	addr *syscall.SockaddrNetlink
 }
 
-func getNetlinkSocket(protocol int) (*NetlinkSocket, error) {
+func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
         fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW, protocol)
         if err != nil {
                 return nil, err
@@ -44,8 +44,8 @@ func getNetlinkSocket(protocol int) (*NetlinkSocket, error) {
         }
 }
 
-func (s *NetlinkSocket) Close() {
-        syscall.Close(s.fd)
+func (s *NetlinkSocket) Close() error {
+        return syscall.Close(s.fd)
 }
 
 func (s *NetlinkSocket) send(buf []byte) error {
@@ -141,14 +141,6 @@ func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
 	h.Seq = seq
 	res = nlmsg.buf
 	nlmsg.buf = nil
-	return
-}
-
-func (nlmsg *NlMsgBuilder) AddGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
-	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	pos := nlmsg.Grow(unsafe.Sizeof(*res))
-	res = genlMsghdrAt(nlmsg.buf, pos)
-	res.Cmd = cmd
 	return
 }
 
@@ -253,20 +245,6 @@ func (nlmsg *NlMsgButcher) TakeNlMsghdr(expectType uint16) (*syscall.NlMsghdr, e
 	return h, nil
 }
 
-func (nlmsg *NlMsgButcher) TakeGenlMsghdr(expectCmd uint8) (*GenlMsghdr, error) {
-	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	gh := genlMsghdrAt(nlmsg.data, nlmsg.pos)
-	if err := nlmsg.Advance(unsafe.Sizeof(*gh)); err != nil {
-		return nil, err
-	}
-
-	if gh.Cmd != expectCmd {
-		return nil, fmt.Errorf("generic netlink response has wrong cmd (got %d, expected %d)", gh.Cmd, expectCmd)
-	}
-
-	return gh, nil
-}
-
 type Attrs map[uint16][]byte
 
 func (attrs Attrs) Get(typ uint16) ([]byte, error) {
@@ -326,47 +304,4 @@ func (nlmsg *NlMsgButcher) TakeAttrs() (attrs Attrs, err error) {
 		attrs[rta.Type] = nlmsg.data[valpos:nlmsg.pos + int(rta.Len)]
 		nlmsg.pos += int(rtaLen)
 	}
-}
-
-func (s *NetlinkSocket) lookupGenlFamily(name string) (uint16, error) {
-	req := NewNlMsgBuilder(syscall.NLM_F_REQUEST | syscall.NLM_F_ACK,
-		GENL_ID_CTRL)
-
-	req.AddGenlMsghdr(CTRL_CMD_GETFAMILY)
-	req.AddStringRtAttr(CTRL_ATTR_FAMILY_NAME, name)
-	b, seq := req.Finish()
-
-	if err := s.send(b); err != nil {
-		return 0, err
-        }
-
-	rb, err := s.recv(0)
-        if err != nil {
-		return 0, err
-        }
-
-	if err = s.checkResponse(rb, seq); err != nil {
-		return 0, err
-	}
-
-	resp := NewNlMsgButcher(rb)
-	if _, err := resp.TakeNlMsghdr(GENL_ID_CTRL); err != nil {
-		return 0, err
-	}
-
-	if _, err := resp.TakeGenlMsghdr(CTRL_CMD_NEWFAMILY); err != nil {
-		return 0, err
-	}
-
-	attrs, err := resp.TakeAttrs()
-	if err != nil {
-		return 0, err
-	}
-
-	res, err := attrs.GetUint16(CTRL_ATTR_FAMILY_ID)
-	if err != nil {
-		return 0, err
-	}
-
-	return res, nil
 }
