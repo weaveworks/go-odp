@@ -82,10 +82,6 @@ func nlMsghdrAt(data []byte, pos int) *syscall.NlMsghdr {
 	return (*syscall.NlMsghdr)(unsafe.Pointer(&data[pos]))
 }
 
-func genlMsghdrAt(data []byte, pos int) *GenlMsghdr {
-	return (*GenlMsghdr)(unsafe.Pointer(&data[pos]))
-}
-
 func rtAttrAt(data []byte, pos int) *syscall.RtAttr {
 	return (*syscall.RtAttr)(unsafe.Pointer(&data[pos]))
 }
@@ -146,11 +142,10 @@ func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
 
 func (nlmsg *NlMsgBuilder) PutRtAttr(typ uint16, gen func()) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	var rta *syscall.RtAttr
-	pos := nlmsg.Grow(unsafe.Sizeof(*rta))
+	pos := nlmsg.Grow(syscall.SizeofRtAttr)
 	nlmsg.Align(syscall.RTA_ALIGNTO)
 	gen()
-	rta = rtAttrAt(nlmsg.buf, pos)
+	rta := rtAttrAt(nlmsg.buf, pos)
 	rta.Type = typ
 	rta.Len = uint16(len(nlmsg.buf) - pos)
 }
@@ -262,8 +257,7 @@ func (attrs Attrs) GetUint16(typ uint16) (uint16, error) {
 		return 0, err
 	}
 
-	var dummy uint16
-	if len(val) != int(unsafe.Sizeof(dummy)) {
+	if len(val) != 2 {
 		return 0, err
 	}
 
@@ -288,18 +282,17 @@ func (nlmsg *NlMsgButcher) TakeAttrs() (attrs Attrs, err error) {
 
 		nlmsg.pos = apos
 
-		var rta *syscall.RtAttr
-		if err = nlmsg.checkData(unsafe.Sizeof(*rta), "netlink attribute"); err != nil {
+		if err = nlmsg.checkData(syscall.SizeofRtAttr, "netlink attribute"); err != nil {
 			return
 		}
 
-		rta = rtAttrAt(nlmsg.data, nlmsg.pos)
+		rta := rtAttrAt(nlmsg.data, nlmsg.pos)
 		rtaLen := uintptr(rta.Len)
 		if err = nlmsg.checkData(rtaLen, "netlink attribute"); err != nil {
 			return
 		}
 
-		valpos := align(nlmsg.pos + int(unsafe.Sizeof(*rta)),
+		valpos := align(nlmsg.pos + syscall.SizeofRtAttr,
 			syscall.RTA_ALIGNTO)
 		attrs[rta.Type] = nlmsg.data[valpos:nlmsg.pos + int(rta.Len)]
 		nlmsg.pos += int(rtaLen)

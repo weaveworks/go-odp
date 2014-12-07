@@ -6,18 +6,22 @@ import (
 	"unsafe"
 )
 
-func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
+func genlMsghdrAt(data []byte, pos int) *GenlMsghdr {
+	return (*GenlMsghdr)(unsafe.Pointer(&data[pos]))
+}
+
+func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8) (*GenlMsghdr) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	pos := nlmsg.Grow(unsafe.Sizeof(*res))
-	res = genlMsghdrAt(nlmsg.buf, pos)
+	pos := nlmsg.Grow(SizeofGenlMsghdr)
+	res := genlMsghdrAt(nlmsg.buf, pos)
 	res.Cmd = cmd
-	return
+	return res
 }
 
 func (nlmsg *NlMsgButcher) TakeGenlMsghdr(expectCmd uint8) (*GenlMsghdr, error) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
 	gh := genlMsghdrAt(nlmsg.data, nlmsg.pos)
-	if err := nlmsg.Advance(unsafe.Sizeof(*gh)); err != nil {
+	if err := nlmsg.Advance(SizeofGenlMsghdr); err != nil {
 		return nil, err
 	}
 

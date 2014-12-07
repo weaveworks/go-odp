@@ -1,5 +1,3 @@
-Use syscall.SizeofNlMsgerr etc
-
 Fix up remains uses of Errors.new
 
 Fold checkResponse into NewNlMsgButcher

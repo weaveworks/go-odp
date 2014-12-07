@@ -8,6 +8,8 @@ type GenlMsghdr struct {
 	Reserved uint16
 }
 
+const SizeofGenlMsghdr = 4
+
 // reserved static generic netlink identifiers:
 const (
 	GENL_ID_GENERATE = 0
