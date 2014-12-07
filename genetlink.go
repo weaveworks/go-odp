@@ -36,7 +36,7 @@ func (s *NetlinkSocket) LookupGenlFamily(name string) (uint16, error) {
 	req := NewNlMsgBuilder(syscall.NLM_F_REQUEST, GENL_ID_CTRL)
 
 	req.PutGenlMsghdr(CTRL_CMD_GETFAMILY)
-	req.PutStringRtAttr(CTRL_ATTR_FAMILY_NAME, name)
+	req.PutStringAttr(CTRL_ATTR_FAMILY_NAME, name)
 	b, seq := req.Finish()
 
 	if err := s.send(b); err != nil {

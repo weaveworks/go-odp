@@ -82,8 +82,8 @@ func nlMsghdrAt(data []byte, pos int) *syscall.NlMsghdr {
 	return (*syscall.NlMsghdr)(unsafe.Pointer(&data[pos]))
 }
 
-func rtAttrAt(data []byte, pos int) *syscall.RtAttr {
-	return (*syscall.RtAttr)(unsafe.Pointer(&data[pos]))
+func nlAttrAt(data []byte, pos int) *syscall.NlAttr {
+	return (*syscall.NlAttr)(unsafe.Pointer(&data[pos]))
 }
 
 func nlMsgerrAt(data []byte, pos int) *syscall.NlMsgerr {
@@ -140,25 +140,24 @@ func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
 	return
 }
 
-func (nlmsg *NlMsgBuilder) PutRtAttr(typ uint16, gen func()) {
-	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	pos := nlmsg.Grow(syscall.SizeofRtAttr)
-	nlmsg.Align(syscall.RTA_ALIGNTO)
+func (nlmsg *NlMsgBuilder) PutAttr(typ uint16, gen func()) {
+	nlmsg.Align(syscall.NLA_ALIGNTO)
+	pos := nlmsg.Grow(syscall.SizeofNlAttr)
 	gen()
-	rta := rtAttrAt(nlmsg.buf, pos)
-	rta.Type = typ
-	rta.Len = uint16(len(nlmsg.buf) - pos)
+	nla := nlAttrAt(nlmsg.buf, pos)
+	nla.Type = typ
+	nla.Len = uint16(len(nlmsg.buf) - pos)
 }
 
-func (nlmsg *NlMsgBuilder) addStringZ(str string) {
+func (nlmsg *NlMsgBuilder) putStringZ(str string) {
 	l := len(str)
 	pos := nlmsg.Grow(uintptr(l) + 1)
 	copy(nlmsg.buf[pos:], str)
 	nlmsg.buf[pos + l] = 0
 }
 
-func (nlmsg *NlMsgBuilder) PutStringRtAttr(typ uint16, str string) {
-	nlmsg.PutRtAttr(typ, func () { nlmsg.addStringZ(str) })
+func (nlmsg *NlMsgBuilder) PutStringAttr(typ uint16, str string) {
+	nlmsg.PutAttr(typ, func () { nlmsg.putStringZ(str) })
 }
 
 type NetlinkError struct {
@@ -275,26 +274,24 @@ func (nlmsg *NlMsgButcher) checkData(l uintptr, obj string) error {
 func (nlmsg *NlMsgButcher) TakeAttrs() (attrs Attrs, err error) {
 	attrs = make(Attrs)
 	for {
-		apos := align(nlmsg.pos, syscall.RTA_ALIGNTO)
+		apos := align(nlmsg.pos, syscall.NLA_ALIGNTO)
 		if len(nlmsg.data) <= apos {
 			return
 		}
 
 		nlmsg.pos = apos
 
-		if err = nlmsg.checkData(syscall.SizeofRtAttr, "netlink attribute"); err != nil {
+		if err = nlmsg.checkData(syscall.SizeofNlAttr, "netlink attribute"); err != nil {
 			return
 		}
 
-		rta := rtAttrAt(nlmsg.data, nlmsg.pos)
-		rtaLen := uintptr(rta.Len)
-		if err = nlmsg.checkData(rtaLen, "netlink attribute"); err != nil {
+		nla := nlAttrAt(nlmsg.data, nlmsg.pos)
+		if err = nlmsg.checkData(uintptr(nla.Len), "netlink attribute"); err != nil {
 			return
 		}
 
-		valpos := align(nlmsg.pos + syscall.SizeofRtAttr,
-			syscall.RTA_ALIGNTO)
-		attrs[rta.Type] = nlmsg.data[valpos:nlmsg.pos + int(rta.Len)]
-		nlmsg.pos += int(rtaLen)
+		valpos := align(nlmsg.pos + syscall.SizeofNlAttr, syscall.NLA_ALIGNTO)
+		attrs[nla.Type] = nlmsg.data[valpos:nlmsg.pos + int(nla.Len)]
+		nlmsg.pos += int(nla.Len)
 	}
 }
