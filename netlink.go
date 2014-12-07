@@ -144,7 +144,7 @@ func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
 	return
 }
 
-func (nlmsg *NlMsgBuilder) AddRtAttr(typ uint16, gen func()) {
+func (nlmsg *NlMsgBuilder) PutRtAttr(typ uint16, gen func()) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
 	var rta *syscall.RtAttr
 	pos := nlmsg.Grow(unsafe.Sizeof(*rta))
@@ -162,8 +162,8 @@ func (nlmsg *NlMsgBuilder) addStringZ(str string) {
 	nlmsg.buf[pos + l] = 0
 }
 
-func (nlmsg *NlMsgBuilder) AddStringRtAttr(typ uint16, str string) {
-	nlmsg.AddRtAttr(typ, func () { nlmsg.addStringZ(str) })
+func (nlmsg *NlMsgBuilder) PutStringRtAttr(typ uint16, str string) {
+	nlmsg.PutRtAttr(typ, func () { nlmsg.addStringZ(str) })
 }
 
 type NetlinkError struct {

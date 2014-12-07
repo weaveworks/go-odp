@@ -6,7 +6,7 @@ import (
 	"unsafe"
 )
 
-func (nlmsg *NlMsgBuilder) AddGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
+func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8) (res *GenlMsghdr) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
 	pos := nlmsg.Grow(unsafe.Sizeof(*res))
 	res = genlMsghdrAt(nlmsg.buf, pos)
@@ -33,8 +33,8 @@ type GenlFamilyId uint16
 func (s *NetlinkSocket) LookupGenlFamily(name string) (GenlFamilyId, error) {
 	req := NewNlMsgBuilder(syscall.NLM_F_REQUEST, GENL_ID_CTRL)
 
-	req.AddGenlMsghdr(CTRL_CMD_GETFAMILY)
-	req.AddStringRtAttr(CTRL_ATTR_FAMILY_NAME, name)
+	req.PutGenlMsghdr(CTRL_CMD_GETFAMILY)
+	req.PutStringRtAttr(CTRL_ATTR_FAMILY_NAME, name)
 	b, seq := req.Finish()
 
 	if err := s.send(b); err != nil {
