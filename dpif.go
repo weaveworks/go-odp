@@ -3,6 +3,7 @@ package main
 import (
 	"syscall"
 	"fmt"
+	"unsafe"
 )
 
 const (
@@ -64,5 +65,35 @@ func (dpif *Dpif) Close() error {
 }
 
 func (dpif *Dpif) EnumerateDatapaths() error {
-	return dpif.sock.Dump(dpif.familyIds[DATAPATH], OVS_DP_CMD_GET)
+	return dpif.sock.Dump(dpif.familyIds[DATAPATH], OVS_DP_CMD_GET,
+		OVS_DATAPATH_VERSION)
+}
+
+func ovsHeaderAt(data []byte, pos int) *OvsHeader {
+	return (*OvsHeader)(unsafe.Pointer(&data[pos]))
+}
+
+func (nlmsg *NlMsgBuilder) PutOvsHeader(ifindex int32) {
+	nlmsg.Align(syscall.NLMSG_ALIGNTO)
+	pos := nlmsg.Grow(SizeofOvsHeader)
+	h := ovsHeaderAt(nlmsg.buf, pos)
+	h.DpIfIndex = ifindex
+}
+
+func (dpif *Dpif) CreateDatapath(name string) error {
+	var features uint32 = OVS_DP_F_UNALIGNED | OVS_DP_F_VPORT_PIDS
+
+	req := NewNlMsgBuilder(syscall.NLM_F_REQUEST, dpif.familyIds[DATAPATH])
+	req.PutGenlMsghdr(OVS_DP_CMD_NEW, OVS_DATAPATH_VERSION)
+	req.PutOvsHeader(0)
+	req.PutStringAttr(OVS_DP_ATTR_NAME, name)
+	req.PutUint32Attr(OVS_DP_ATTR_UPCALL_PID, 0)
+	req.PutUint32Attr(OVS_DP_ATTR_USER_FEATURES, features)
+
+	_, err := dpif.sock.Request(req)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

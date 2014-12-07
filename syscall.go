@@ -41,10 +41,34 @@ const (
         CTRL_ATTR_MCAST_GROUPS = 7
 )
 
+type OvsHeader struct {
+	DpIfIndex int32
+}
+
+const SizeofOvsHeader = 4
+
 const (
+	OVS_DATAPATH_VERSION = 2
+)
+
+const ( // ovs_datapath_cmd
         OVS_DP_CMD_UNSPEC = 0
         OVS_DP_CMD_NEW = 1
         OVS_DP_CMD_DEL = 2
         OVS_DP_CMD_GET = 3
         OVS_DP_CMD_SET = 4
+)
+
+const ( // ovs_datapath_attr
+        OVS_DP_ATTR_UNSPEC = 0
+        OVS_DP_ATTR_NAME = 1
+        OVS_DP_ATTR_UPCALL_PID = 2
+        OVS_DP_ATTR_STATS = 3
+        OVS_DP_ATTR_MEGAFLOW_STATS = 4
+        OVS_DP_ATTR_USER_FEATURES = 5
+)
+
+const (
+	OVS_DP_F_UNALIGNED = 1
+	OVS_DP_F_VPORT_PIDS = 2
 )

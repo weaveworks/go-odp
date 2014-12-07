@@ -6,7 +6,11 @@ func main() {
 		panic(err)
 	}
 
-	dpif.EnumerateDatapaths()
+	//dpif.EnumerateDatapaths()
+	err = dpif.CreateDatapath("foo")
+	if err != nil {
+		panic(err)
+	}
 
 	err = dpif.Close()
 	if err != nil {

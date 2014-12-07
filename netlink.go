@@ -48,36 +48,6 @@ func (s *NetlinkSocket) Close() error {
         return syscall.Close(s.fd)
 }
 
-func (s *NetlinkSocket) send(buf []byte) error {
-	sa := syscall.SockaddrNetlink{
-		Family: syscall.AF_NETLINK,
-		Pid: 0,
-		Groups: 0,
-	}
-
-	return syscall.Sendto(s.fd, buf, 0, &sa)
-}
-
-func (s *NetlinkSocket) recv(peer uint32) ([]byte, error) {
-        rb := make([]byte, syscall.Getpagesize())
-        nr, from, err := syscall.Recvfrom(s.fd, rb, 0)
-        if err != nil {
-                return nil, err
-        }
-
-	switch nlfrom := from.(type) {
-        case *syscall.SockaddrNetlink:
-		if nlfrom.Pid != peer {
-			return nil, fmt.Errorf("wrong netlink peer pid (expected %d, got %d)", peer, nlfrom.Pid)
-		}
-
-		return rb[:nr], nil
-
-	default:
-		return nil, fmt.Errorf("Expected netlink sockaddr, got %s", reflect.TypeOf(from))
-        }
-}
-
 func nlMsghdrAt(data []byte, pos int) *syscall.NlMsghdr {
 	return (*syscall.NlMsghdr)(unsafe.Pointer(&data[pos]))
 }
@@ -140,6 +110,16 @@ func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
 	return
 }
 
+type PutAttr func (*NlMsgBuilder)
+
+func (nlmsg *NlMsgBuilder) PutAttrs(attrs []PutAttr) {
+	if attrs != nil {
+		for i := range(attrs) {
+			attrs[i](nlmsg)
+		}
+	}
+}
+
 func (nlmsg *NlMsgBuilder) PutAttr(typ uint16, gen func()) {
 	nlmsg.Align(syscall.NLA_ALIGNTO)
 	pos := nlmsg.Grow(syscall.SizeofNlAttr)
@@ -147,6 +127,17 @@ func (nlmsg *NlMsgBuilder) PutAttr(typ uint16, gen func()) {
 	nla := nlAttrAt(nlmsg.buf, pos)
 	nla.Type = typ
 	nla.Len = uint16(len(nlmsg.buf) - pos)
+}
+
+func (nlmsg *NlMsgBuilder) PutUint32Attr(typ uint16, val uint32) {
+	nlmsg.PutAttr(typ, func () {
+		pos := nlmsg.Grow(4)
+		*(*uint32)(unsafe.Pointer(&nlmsg.buf[pos])) = val
+	})
+}
+
+func PutUint32Attr(typ uint16, val uint32) PutAttr {
+	return func (nlmsg *NlMsgBuilder) { nlmsg.PutUint32Attr(typ, val) }
 }
 
 func (nlmsg *NlMsgBuilder) putStringZ(str string) {
@@ -158,6 +149,10 @@ func (nlmsg *NlMsgBuilder) putStringZ(str string) {
 
 func (nlmsg *NlMsgBuilder) PutStringAttr(typ uint16, str string) {
 	nlmsg.PutAttr(typ, func () { nlmsg.putStringZ(str) })
+}
+
+func PutStringAttr(typ uint16, str string) PutAttr {
+	return func (nlmsg *NlMsgBuilder) { nlmsg.PutStringAttr(typ, str) }
 }
 
 type NetlinkError struct {
@@ -228,12 +223,12 @@ func (nlmsg *NlMsgButcher) Advance(n uintptr) error {
 	return nil
 }
 
-func (nlmsg *NlMsgButcher) TakeNlMsghdr(expectType uint16) (*syscall.NlMsghdr, error) {
+func (nlmsg *NlMsgButcher) ExpectNlMsghdr(typ uint16) (*syscall.NlMsghdr, error) {
 	h := nlMsghdrAt(nlmsg.data, 0)
 	nlmsg.pos += syscall.NLMSG_HDRLEN
 
-	if h.Type != expectType {
-		return nil, fmt.Errorf("netlink response has wrong type (got %d, expected %d)", h.Type, expectType)
+	if h.Type != typ {
+		return nil, fmt.Errorf("netlink response has wrong type (got %d, expected %d)", h.Type, typ)
 	}
 
 	return h, nil
@@ -294,4 +289,52 @@ func (nlmsg *NlMsgButcher) TakeAttrs() (attrs Attrs, err error) {
 		attrs[nla.Type] = nlmsg.data[valpos:nlmsg.pos + int(nla.Len)]
 		nlmsg.pos += int(nla.Len)
 	}
+}
+
+func (s *NetlinkSocket) send(buf []byte) error {
+	sa := syscall.SockaddrNetlink{
+		Family: syscall.AF_NETLINK,
+		Pid: 0,
+		Groups: 0,
+	}
+
+	return syscall.Sendto(s.fd, buf, 0, &sa)
+}
+
+func (s *NetlinkSocket) recv(peer uint32) ([]byte, error) {
+        rb := make([]byte, syscall.Getpagesize())
+        nr, from, err := syscall.Recvfrom(s.fd, rb, 0)
+        if err != nil {
+                return nil, err
+        }
+
+	switch nlfrom := from.(type) {
+        case *syscall.SockaddrNetlink:
+		if nlfrom.Pid != peer {
+			return nil, fmt.Errorf("wrong netlink peer pid (expected %d, got %d)", peer, nlfrom.Pid)
+		}
+
+		return rb[:nr], nil
+
+	default:
+		return nil, fmt.Errorf("Expected netlink sockaddr, got %s", reflect.TypeOf(from))
+        }
+}
+
+func (s *NetlinkSocket) Request(reqb *NlMsgBuilder) (*NlMsgButcher, error) {
+	req, seq := reqb.Finish()
+	if err := s.send(req); err != nil {
+		return nil, err
+        }
+
+	resp, err := s.recv(0)
+        if err != nil {
+		return nil, err
+        }
+
+	if err = s.checkResponse(resp, seq); err != nil {
+		return nil, err
+	}
+
+	return NewNlMsgButcher(resp), nil
 }

@@ -1,5 +1,12 @@
 Create datapath
 
+dpif-netlink.c:255 dpif_netlink_open
+(request.comd = OVS_DP_CMD_NEW, other opts set in dp_request too)
+nl_msg_put_string(buf, OVS_DP_ATTR_NAME, dp->name);
+nl_msg_put_u32(buf, OVS_DP_ATTR_USER_FEATURES, dp->user_features);
+
+Are nlattrs and rtattrs really identical?
+
 Enumerate datapaths
 
 dpif-netlink.c:228 dpif_netlink_enumerate
@@ -20,11 +27,15 @@ dpif-netlink.c:228 dpif_netlink_enumerate
 
 Delete datapth
 
-Close datapath Open datapath (huh?)
+Open datapth, close datapath
+
+Can have combined NlMsgBuilder AlignAndGrow
+
+That PutAttrs sutff might be a waste of time?
+
+Put enum name comments in syscall.go
 
 Fold checkResponse into NewNlMsgButcher
-
-Move generic netlink req/resp code out of LookupGenlFamily
 
 Do we need to grow buffer when reading?
 
@@ -34,4 +45,3 @@ Check for MSG_TRUNC flag
 
 Follow netlink-socket.c:1106: mutex around receiving on netlink socket
 to avoid in-kernel race.
-
