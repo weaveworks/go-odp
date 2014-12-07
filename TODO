@@ -1,5 +1,3 @@
-Fix up remains uses of Errors.new
-
 Fold checkResponse into NewNlMsgButcher
 
 Do we need to grow buffer when reading?

@@ -3,9 +3,9 @@ package main
 import (
         "syscall"
 	"unsafe"
-	"errors"
 	"fmt"
 	"sync/atomic"
+	"reflect"
 )
 
 func align(n int, a int) int {
@@ -40,7 +40,7 @@ func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
 		return &NetlinkSocket{fd: fd, addr: nladdr}, nil
 
 	default:
-		return nil, errors.New("Wrong socket address type")
+		return nil, fmt.Errorf("Expected netlink sockaddr, got %s", reflect.TypeOf(localaddr))
         }
 }
 
@@ -67,14 +67,14 @@ func (s *NetlinkSocket) recv(peer uint32) ([]byte, error) {
 
 	switch nlfrom := from.(type) {
         case *syscall.SockaddrNetlink:
-		if (nlfrom.Pid != peer) {
-			return nil, errors.New("netlink peer mismatch")
+		if nlfrom.Pid != peer {
+			return nil, fmt.Errorf("wrong netlink peer pid (expected %d, got %d)", peer, nlfrom.Pid)
 		}
 
 		return rb[:nr], nil
 
 	default:
-		return nil, errors.New("Wrong socket address type")
+		return nil, fmt.Errorf("Expected netlink sockaddr, got %s", reflect.TypeOf(from))
         }
 }
 
