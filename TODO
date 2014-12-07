@@ -1,6 +1,14 @@
-Do we need to grow buffer when reading?
-
 Do all family lookups from OVS
 
+Add -> Put
 
 Use syscall.SizeofNlMsgerr etc
+
+Fix up remains uses of Errors.new
+
+Fold checkResponse into NewNlMsgButcher
+
+Do we need to grow buffer when reading?
+
+
+

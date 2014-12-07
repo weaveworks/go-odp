@@ -31,8 +31,7 @@ func (nlmsg *NlMsgButcher) TakeGenlMsghdr(expectCmd uint8) (*GenlMsghdr, error) 
 type GenlFamilyId uint16
 
 func (s *NetlinkSocket) LookupGenlFamily(name string) (GenlFamilyId, error) {
-	req := NewNlMsgBuilder(syscall.NLM_F_REQUEST | syscall.NLM_F_ACK,
-		GENL_ID_CTRL)
+	req := NewNlMsgBuilder(syscall.NLM_F_REQUEST, GENL_ID_CTRL)
 
 	req.AddGenlMsghdr(CTRL_CMD_GETFAMILY)
 	req.AddStringRtAttr(CTRL_ATTR_FAMILY_NAME, name)

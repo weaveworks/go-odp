@@ -5,9 +5,37 @@ import (
 	"fmt"
 )
 
+const (
+	DATAPATH = iota
+	VPORT = iota
+	FLOW = iota
+	PACKET = iota
+	FAMILY_COUNT = iota
+)
+
+var familyNames = [FAMILY_COUNT]string {
+	"ovs_datapath",
+	"ovs_vport",
+	"ovs_flow",
+	"ovs_packet",
+}
+
 type Dpif struct {
 	sock *NetlinkSocket
-	datapathFamilyId GenlFamilyId
+	familyIds [FAMILY_COUNT]GenlFamilyId
+}
+
+func lookupFamily(sock *NetlinkSocket, name string) (GenlFamilyId, error) {
+	id, err := sock.LookupGenlFamily(name)
+	if err == nil {
+		return id, nil
+	}
+
+	if e, ok := err.(NetlinkError); ok && e.Errno == syscall.ENOENT {
+		return 0, fmt.Errorf("Generic netlink family '%s' unavailable; the Open vSwitch kernel module is probably not loaded", name)
+	}
+
+	return 0, err
 }
 
 func NewDpif() (*Dpif, error) {
@@ -18,22 +46,15 @@ func NewDpif() (*Dpif, error) {
 
 	dpif := &Dpif{sock: sock}
 
-	family := "ovs_datapath"
-	dpif.datapathFamilyId, err = sock.LookupGenlFamily(family)
-	if err != nil {
-		goto lookupFailure
+	for i := 0; i < FAMILY_COUNT; i++ {
+		dpif.familyIds[i], err = lookupFamily(sock, familyNames[i])
+		if err != nil {
+			sock.Close()
+			return nil, err
+		}
 	}
 
 	return dpif, nil
-
-lookupFailure:
-	sock.Close()
-
-	if e, ok := err.(NetlinkError); ok && e.Errno == syscall.ENOENT {
-		return nil, fmt.Errorf("Generic netlink family '%s' unavailable; the Open vSwitch kernel module is probably not loaded", family)
-	} else {
-		return nil, err
-	}
 }
 
 func (dpif *Dpif) Close() error {
