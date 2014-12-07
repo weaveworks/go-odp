@@ -41,3 +41,10 @@ const (
         CTRL_ATTR_MCAST_GROUPS = 7
 )
 
+const (
+        OVS_DP_CMD_UNSPEC = 0
+        OVS_DP_CMD_NEW = 1
+        OVS_DP_CMD_DEL = 2
+        OVS_DP_CMD_GET = 3
+        OVS_DP_CMD_SET = 4
+)

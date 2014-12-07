@@ -22,10 +22,10 @@ var familyNames = [FAMILY_COUNT]string {
 
 type Dpif struct {
 	sock *NetlinkSocket
-	familyIds [FAMILY_COUNT]GenlFamilyId
+	familyIds [FAMILY_COUNT]uint16
 }
 
-func lookupFamily(sock *NetlinkSocket, name string) (GenlFamilyId, error) {
+func lookupFamily(sock *NetlinkSocket, name string) (uint16, error) {
 	id, err := sock.LookupGenlFamily(name)
 	if err == nil {
 		return id, nil
@@ -61,4 +61,8 @@ func (dpif *Dpif) Close() error {
 	err := dpif.sock.Close()
 	dpif.sock = nil
 	return err
+}
+
+func (dpif *Dpif) EnumerateDatapaths() error {
+	return dpif.sock.Dump(dpif.familyIds[DATAPATH], OVS_DP_CMD_GET)
 }

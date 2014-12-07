@@ -1,6 +1,37 @@
+Create datapath
+
+Enumerate datapaths
+
+dpif-netlink.c:228 dpif_netlink_enumerate
+  dpif-netlink:2525 dpif_netlink_dp_dump_start
+  (request.cmd = OVS_DP_CMD_GET)
+    dpif-netlink.c:2491 dpif_netlink_dp_to_ofpbuf
+      (set nlmsghdr flags to NLM_F_REQUEST | NLM_F_ECHO
+      netlink.c:149 nl_msg_put_genlmsghdr
+      (sets up nlmsghdr with type = genl family)
+
+    netlink-socket.c:1005 nl_dump_start
+    (resets nlmsghdr flags to NLM_F_DUMP | NLM_F_ACK)
+      netlink-socket.c:494 nl_sock_send__
+      (simply writes buffer)
+
+  netlink-socket.c:1094 nl_dump_next
+    netlink-socket.c:1022 nl_dump_refill
+
+Delete datapth
+
+Close datapath Open datapath (huh?)
+
 Fold checkResponse into NewNlMsgButcher
+
+Move generic netlink req/resp code out of LookupGenlFamily
 
 Do we need to grow buffer when reading?
 
+Netlink message dumper
 
+Check for MSG_TRUNC flag
+
+Follow netlink-socket.c:1106: mutex around receiving on netlink socket
+to avoid in-kernel race.
 

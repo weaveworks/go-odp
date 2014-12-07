@@ -32,9 +32,7 @@ func (nlmsg *NlMsgButcher) TakeGenlMsghdr(expectCmd uint8) (*GenlMsghdr, error) 
 	return gh, nil
 }
 
-type GenlFamilyId uint16
-
-func (s *NetlinkSocket) LookupGenlFamily(name string) (GenlFamilyId, error) {
+func (s *NetlinkSocket) LookupGenlFamily(name string) (uint16, error) {
 	req := NewNlMsgBuilder(syscall.NLM_F_REQUEST, GENL_ID_CTRL)
 
 	req.PutGenlMsghdr(CTRL_CMD_GETFAMILY)
@@ -73,5 +71,29 @@ func (s *NetlinkSocket) LookupGenlFamily(name string) (GenlFamilyId, error) {
 		return 0, err
 	}
 
-	return GenlFamilyId(id), nil
+	return id, nil
+}
+
+func (s *NetlinkSocket) Dump(typ uint16, cmd uint8) error {
+	// We need the ack in order to know when all response items
+	// have arrived.  MSG_F_DONE is the official way, but that
+	// doesn't work when there are no items.  iproute2 doesn't
+	// seemto use this technique; I've no idea how it handles the
+	// no-items case.
+
+	req := NewNlMsgBuilder(syscall.NLM_F_DUMP | syscall.NLM_F_ACK | syscall.NLM_F_REQUEST, typ)
+	req.PutGenlMsghdr(cmd)
+	b, _ := req.Finish()
+
+	if err := s.send(b); err != nil {
+		return err
+        }
+
+	rb, err := s.recv(0)
+        if err != nil {
+		return err
+        }
+
+	fmt.Printf("XXX %v\n", rb)
+	return nil
 }
