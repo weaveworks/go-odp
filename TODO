@@ -1,8 +1,6 @@
-Tests!
+On lookupDatapath, turn ENODEV into a nil return, not an error
 
 Simple enum/create/enum/delete/enum Test
-
-On lookupDatapath, turn ENODEV into a nil return, not an error
 
 Can have combined NlMsgBuilder AlignAndGrow.  Also, align and advance
 
