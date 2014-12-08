@@ -175,6 +175,11 @@ func (dpif *Dpif) LookupDatapath(name string) (*Datapath, error) {
 
 	resp, err := dpif.sock.Request(req)
 	if err != nil {
+		if e, ok := err.(NetlinkError); ok && e.Errno == syscall.ENODEV {
+			// no datapath with the given name
+			return nil, nil
+		}
+
 		return nil, err
 	}
 

@@ -2,22 +2,51 @@ package main
 
 import (
 	"testing"
+	"math/rand"
+	"fmt"
 )
-
-func check(t *testing.T, err error) {
-	if err != nil {
-		t.Fatal(err)
-	}
-}
 
 func TestDatapath(t *testing.T) {
 	dpif, err := NewDpif()
-	check(t, err)
+	if err != nil { t.Fatal(err) }
 
-	dp, err := dpif.CreateDatapath("foo")
-	check(t, err)
+	name := fmt.Sprintf("test%d", rand.Intn(100000))
 
-	check(t, dp.Delete())
+	dp, err := dpif.CreateDatapath(name)
+	if err != nil { t.Fatal(err) }
 
-	check(t, dpif.Close())
+	err = dp.Delete()
+	if err != nil { t.Fatal(err) }
+
+	err = dpif.Close()
+	if err != nil { t.Fatal(err) }
+}
+
+func TestLookupDatapath(t *testing.T) {
+	dpif, err := NewDpif()
+	if err != nil { t.Fatal(err) }
+
+	name := fmt.Sprintf("test%d", rand.Intn(100000))
+	dp, err := dpif.LookupDatapath(name)
+	if err != nil { t.Fatal(err) }
+	if dp != nil { t.Fatal("LookupDatapath should return nil for non-existent name") }
+
+	dp, err = dpif.CreateDatapath(name)
+	if err != nil { t.Fatal(err) }
+
+	err = dpif.Close()
+	if err != nil { t.Fatal(err) }
+
+	dpif, err = NewDpif()
+	if err != nil { t.Fatal(err) }
+
+	dp, err = dpif.LookupDatapath(name)
+	if err != nil { t.Fatal(err) }
+	if dp == nil { t.Fatal("LookupDatapath failed to return datapath") }
+
+	err = dp.Delete()
+	if err != nil { t.Fatal(err) }
+
+	err = dpif.Close()
+	if err != nil { t.Fatal(err) }
 }
