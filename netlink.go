@@ -142,7 +142,7 @@ func PutUint32Attr(typ uint16, val uint32) PutAttr {
 
 func (nlmsg *NlMsgBuilder) putStringZ(str string) {
 	l := len(str)
-	pos := nlmsg.Grow(uintptr(l) + 1)
+pos := nlmsg.Grow(uintptr(l) + 1)
 	copy(nlmsg.buf[pos:], str)
 	nlmsg.buf[pos + l] = 0
 }
@@ -163,43 +163,6 @@ func (err NetlinkError) Error() string {
 	return fmt.Sprintf("netlink error response: %s", err.Errno.Error())
 }
 
-func (s *NetlinkSocket) checkResponse(data []byte, expectedSeq uint32) error {
-	if len(data) < syscall.NLMSG_HDRLEN {
-		return fmt.Errorf("truncated netlink message header (have %d bytes)", len(data))
-	}
-
-	h := nlMsghdrAt(data, 0)
-	if len(data) < int(h.Len) {
-		return fmt.Errorf("truncated netlink message (have %d bytes, expected %d)", len(data), h.Len)
-	}
-
-	if h.Pid != s.addr.Pid {
-		return fmt.Errorf("netlink reply pid mismatch (got %d, expected %d)", h.Pid, s.addr.Pid)
-	}
-
-	if h.Seq != expectedSeq {
-		return fmt.Errorf("netlink reply sequence number mismatch (got %d, expected %d)", h.Seq, expectedSeq)
-	}
-
-	payload := data[syscall.NLMSG_HDRLEN:h.Len]
-	if h.Type == syscall.NLMSG_ERROR {
-		nlerr := nlMsgerrAt(payload, 0)
-
-		if nlerr.Error == 0 {
-			// An ack response
-			return nil
-		}
-
-		return NetlinkError{syscall.Errno(-nlerr.Error)}
-	}
-
-	if int(h.Len) > align(len(data), syscall.NLMSG_ALIGNTO) {
-		return fmt.Errorf("multiple netlink messages recieved")
-	}
-
-	return nil
-}
-
 type NlMsgButcher struct {
 	data []byte
 	pos int
@@ -213,19 +176,64 @@ func (nlmsg *NlMsgButcher) Align(a int) {
 	nlmsg.pos = align(nlmsg.pos, a)
 }
 
-func (nlmsg *NlMsgButcher) Advance(n uintptr) error {
-	pos := nlmsg.pos + int(n)
-	if pos > len(nlmsg.data) {
-		return fmt.Errorf("netlink response payload truncated (at %d, expected at least %d bytes)", nlmsg.pos, n)
+func (nlmsg *NlMsgButcher) CheckAvailable(n uintptr) error {
+	if nlmsg.pos + int(n) > len(nlmsg.data) {
+		return fmt.Errorf("netlink message truncated")
 	}
 
-	nlmsg.pos = pos
 	return nil
 }
 
+func (nlmsg *NlMsgButcher) Advance(n uintptr) error {
+	if err := nlmsg.CheckAvailable(n); err != nil {
+		return err
+	}
+
+	nlmsg.pos += int(n)
+	return nil
+}
+
+func (nlmsg *NlMsgButcher) CheckHeader(s *NetlinkSocket, expectedSeq uint32) (*syscall.NlMsghdr, error) {
+	err := nlmsg.CheckAvailable(syscall.SizeofNlMsghdr)
+	if err != nil {
+		return nil, err
+	}
+
+	h := nlMsghdrAt(nlmsg.data, nlmsg.pos)
+	err = nlmsg.CheckAvailable(uintptr(h.Len))
+	if err != nil {
+		return nil, err
+	}
+
+	if h.Pid != s.addr.Pid {
+		return nil, fmt.Errorf("netlink reply pid mismatch (got %d, expected %d)", h.Pid, s.addr.Pid)
+	}
+
+	if h.Seq != expectedSeq {
+		return nil, fmt.Errorf("netlink reply sequence number mismatch (got %d, expected %d)", h.Seq, expectedSeq)
+	}
+
+	if h.Type == syscall.NLMSG_ERROR {
+		nlerr := nlMsgerrAt(nlmsg.data, nlmsg.pos + syscall.NLMSG_HDRLEN)
+
+		if nlerr.Error != 0 {
+			return nil, NetlinkError{syscall.Errno(-nlerr.Error)}
+		}
+	}
+
+	if align(nlmsg.pos + int(h.Len), syscall.NLMSG_ALIGNTO) < len(nlmsg.data) {
+		return nil, fmt.Errorf("multiple netlink messages received")
+	}
+
+	return h, nil
+}
+
 func (nlmsg *NlMsgButcher) ExpectNlMsghdr(typ uint16) (*syscall.NlMsghdr, error) {
-	h := nlMsghdrAt(nlmsg.data, 0)
-	nlmsg.pos += syscall.NLMSG_HDRLEN
+	h := nlMsghdrAt(nlmsg.data, nlmsg.pos)
+
+	if err := nlmsg.Advance(syscall.SizeofNlMsghdr); err != nil {
+		return nil, err
+	}
 
 	if h.Type != typ {
 		return nil, fmt.Errorf("netlink response has wrong type (got %d, expected %d)", h.Type, typ)
@@ -332,9 +340,41 @@ func (s *NetlinkSocket) Request(reqb *NlMsgBuilder) (*NlMsgButcher, error) {
 		return nil, err
         }
 
-	if err = s.checkResponse(resp, seq); err != nil {
+	respb := NewNlMsgButcher(resp)
+	_, err = respb.CheckHeader(s, seq)
+	if err != nil {
 		return nil, err
 	}
 
-	return NewNlMsgButcher(resp), nil
+	return respb, nil
+}
+
+func (s *NetlinkSocket) RequestMulti(reqb *NlMsgBuilder, consumer func (*NlMsgButcher)) error {
+	req, seq := reqb.Finish()
+	if err := s.send(req); err != nil {
+		return err
+        }
+
+	for {
+		resp, err := s.recv(0)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("XXX %v\n", resp)
+
+		respb := NewNlMsgButcher(resp)
+		h, err := respb.CheckHeader(s, seq)
+		if err != nil {
+			return err
+		}
+
+		if h.Type == syscall.NLMSG_DONE {
+			break
+		}
+
+		consumer(respb)
+	}
+
+	return nil
 }

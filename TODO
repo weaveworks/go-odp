@@ -29,6 +29,8 @@ Delete datapth
 
 Open datapth, close datapath
 
+Butcher -> Parser
+
 Can have combined NlMsgBuilder AlignAndGrow
 
 That PutAttrs sutff might be a waste of time?
@@ -40,6 +42,8 @@ Fold checkResponse into NewNlMsgButcher
 Do we need to grow buffer when reading?
 
 Netlink message dumper
+
+Set O_DONTBLOCK on recvs?
 
 Check for MSG_TRUNC flag
 

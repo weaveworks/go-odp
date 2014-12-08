@@ -64,11 +64,6 @@ func (dpif *Dpif) Close() error {
 	return err
 }
 
-func (dpif *Dpif) EnumerateDatapaths() error {
-	return dpif.sock.Dump(dpif.familyIds[DATAPATH], OVS_DP_CMD_GET,
-		OVS_DATAPATH_VERSION)
-}
-
 func ovsHeaderAt(data []byte, pos int) *OvsHeader {
 	return (*OvsHeader)(unsafe.Pointer(&data[pos]))
 }
@@ -78,6 +73,19 @@ func (nlmsg *NlMsgBuilder) PutOvsHeader(ifindex int32) {
 	pos := nlmsg.Grow(SizeofOvsHeader)
 	h := ovsHeaderAt(nlmsg.buf, pos)
 	h.DpIfIndex = ifindex
+}
+
+func (dpif *Dpif) EnumerateDatapaths() error {
+	req := NewNlMsgBuilder(syscall.NLM_F_DUMP | syscall.NLM_F_REQUEST, dpif.familyIds[DATAPATH])
+	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
+	req.PutOvsHeader(0)
+
+	err := dpif.sock.RequestMulti(req, func (resp *NlMsgButcher) {})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (dpif *Dpif) CreateDatapath(name string) error {
