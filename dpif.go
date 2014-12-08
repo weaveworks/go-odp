@@ -75,7 +75,7 @@ func (nlmsg *NlMsgBuilder) PutOvsHeader(ifindex int32) {
 	h.DpIfIndex = ifindex
 }
 
-func (nlmsg *NlMsgButcher) TakeOvsHeader() (*OvsHeader, error) {
+func (nlmsg *NlMsgParser) TakeOvsHeader() (*OvsHeader, error) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
 	h := ovsHeaderAt(nlmsg.data, nlmsg.pos)
 	if err := nlmsg.Advance(SizeofOvsHeader); err != nil {
@@ -90,7 +90,7 @@ type DatapathInfo struct {
 	name string
 }
 
-func (dpif *Dpif) makeDatapathInfo(msg *NlMsgButcher) (*DatapathInfo, error) {
+func (dpif *Dpif) makeDatapathInfo(msg *NlMsgParser) (*DatapathInfo, error) {
 	if _, err := msg.ExpectNlMsghdr(dpif.familyIds[DATAPATH]); err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (dpif *Dpif) EnumerateDatapaths() error {
 	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
 	req.PutOvsHeader(0)
 
-	consumer := func (resp *NlMsgButcher) {
+	consumer := func (resp *NlMsgParser) {
 		dpi, err := dpif.makeDatapathInfo(resp)
 		if err != nil {
 			panic(err)

@@ -163,20 +163,20 @@ func (err NetlinkError) Error() string {
 	return fmt.Sprintf("netlink error response: %s", err.Errno.Error())
 }
 
-type NlMsgButcher struct {
+type NlMsgParser struct {
 	data []byte
 	pos int
 }
 
-func NewNlMsgButcher(data []byte) *NlMsgButcher {
-	return &NlMsgButcher{data: data, pos: 0}
+func NewNlMsgParser(data []byte) *NlMsgParser {
+	return &NlMsgParser{data: data, pos: 0}
 }
 
-func (nlmsg *NlMsgButcher) Align(a int) {
+func (nlmsg *NlMsgParser) Align(a int) {
 	nlmsg.pos = align(nlmsg.pos, a)
 }
 
-func (nlmsg *NlMsgButcher) CheckAvailable(n uintptr) error {
+func (nlmsg *NlMsgParser) CheckAvailable(n uintptr) error {
 	if nlmsg.pos + int(n) > len(nlmsg.data) {
 		return fmt.Errorf("netlink message truncated")
 	}
@@ -184,7 +184,7 @@ func (nlmsg *NlMsgButcher) CheckAvailable(n uintptr) error {
 	return nil
 }
 
-func (nlmsg *NlMsgButcher) Advance(n uintptr) error {
+func (nlmsg *NlMsgParser) Advance(n uintptr) error {
 	if err := nlmsg.CheckAvailable(n); err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func (nlmsg *NlMsgButcher) Advance(n uintptr) error {
 	return nil
 }
 
-func (nlmsg *NlMsgButcher) CheckHeader(s *NetlinkSocket, expectedSeq uint32) (*syscall.NlMsghdr, error) {
+func (nlmsg *NlMsgParser) CheckHeader(s *NetlinkSocket, expectedSeq uint32) (*syscall.NlMsghdr, error) {
 	err := nlmsg.CheckAvailable(syscall.SizeofNlMsghdr)
 	if err != nil {
 		return nil, err
@@ -231,7 +231,7 @@ func (nlmsg *NlMsgButcher) CheckHeader(s *NetlinkSocket, expectedSeq uint32) (*s
 	return h, nil
 }
 
-func (nlmsg *NlMsgButcher) ExpectNlMsghdr(typ uint16) (*syscall.NlMsghdr, error) {
+func (nlmsg *NlMsgParser) ExpectNlMsghdr(typ uint16) (*syscall.NlMsghdr, error) {
 	h := nlMsghdrAt(nlmsg.data, nlmsg.pos)
 
 	if err := nlmsg.Advance(syscall.SizeofNlMsghdr); err != nil {
@@ -286,7 +286,7 @@ func (attrs Attrs) GetString(typ uint16) (string, error) {
 	return string(val[0:len(val) - 1]), nil
 }
 
-func (nlmsg *NlMsgButcher) checkData(l uintptr, obj string) error {
+func (nlmsg *NlMsgParser) checkData(l uintptr, obj string) error {
 	if nlmsg.pos + int(l) <= len(nlmsg.data) {
 		return nil
 	} else {
@@ -294,7 +294,7 @@ func (nlmsg *NlMsgButcher) checkData(l uintptr, obj string) error {
 	}
 }
 
-func (nlmsg *NlMsgButcher) TakeAttrs() (attrs Attrs, err error) {
+func (nlmsg *NlMsgParser) TakeAttrs() (attrs Attrs, err error) {
 	attrs = make(Attrs)
 	for {
 		apos := align(nlmsg.pos, syscall.NLA_ALIGNTO)
@@ -319,17 +319,18 @@ func (nlmsg *NlMsgButcher) TakeAttrs() (attrs Attrs, err error) {
 	}
 }
 
-func (s *NetlinkSocket) send(buf []byte) error {
+func (s *NetlinkSocket) send(msg *NlMsgBuilder) (uint32, error) {
 	sa := syscall.SockaddrNetlink{
 		Family: syscall.AF_NETLINK,
 		Pid: 0,
 		Groups: 0,
 	}
 
-	return syscall.Sendto(s.fd, buf, 0, &sa)
+	data, seq := msg.Finish()
+	return seq, syscall.Sendto(s.fd, data, 0, &sa)
 }
 
-func (s *NetlinkSocket) recv(peer uint32) ([]byte, error) {
+func (s *NetlinkSocket) recv(peer uint32) (*NlMsgParser, error) {
         rb := make([]byte, syscall.Getpagesize())
         nr, from, err := syscall.Recvfrom(s.fd, rb, 0)
         if err != nil {
@@ -342,7 +343,7 @@ func (s *NetlinkSocket) recv(peer uint32) ([]byte, error) {
 			return nil, fmt.Errorf("wrong netlink peer pid (expected %d, got %d)", peer, nlfrom.Pid)
 		}
 
-		return rb[:nr], nil
+		return NewNlMsgParser(rb[:nr]), nil
 
 	default:
 		return nil, fmt.Errorf("Expected netlink sockaddr, got %s", reflect.TypeOf(from))
@@ -355,9 +356,9 @@ func (s *NetlinkSocket) recv(peer uint32) ([]byte, error) {
 const RequestFlags = syscall.NLM_F_REQUEST | syscall.NLM_F_ECHO
 
 // Do a netlink request that yields a single response message.
-func (s *NetlinkSocket) Request(reqb *NlMsgBuilder) (*NlMsgButcher, error) {
-	req, seq := reqb.Finish()
-	if err := s.send(req); err != nil {
+func (s *NetlinkSocket) Request(req *NlMsgBuilder) (*NlMsgParser, error) {
+	seq, err := s.send(req)
+	if err != nil {
 		return nil, err
         }
 
@@ -366,21 +367,20 @@ func (s *NetlinkSocket) Request(reqb *NlMsgBuilder) (*NlMsgButcher, error) {
 		return nil, err
         }
 
-	respb := NewNlMsgButcher(resp)
-	_, err = respb.CheckHeader(s, seq)
+	_, err = resp.CheckHeader(s, seq)
 	if err != nil {
 		return nil, err
 	}
 
-	return respb, nil
+	return resp, nil
 }
 
 const DumpFlags = syscall.NLM_F_DUMP | syscall.NLM_F_REQUEST
 
 // Do a netlink request that yield multiple response messages.
-func (s *NetlinkSocket) RequestMulti(reqb *NlMsgBuilder, consumer func (*NlMsgButcher)) error {
-	req, seq := reqb.Finish()
-	if err := s.send(req); err != nil {
+func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func (*NlMsgParser)) error {
+	seq, err := s.send(req)
+	if err != nil {
 		return err
         }
 
@@ -390,10 +390,7 @@ func (s *NetlinkSocket) RequestMulti(reqb *NlMsgBuilder, consumer func (*NlMsgBu
 			return err
 		}
 
-		fmt.Printf("XXX %v\n", resp)
-
-		respb := NewNlMsgButcher(resp)
-		h, err := respb.CheckHeader(s, seq)
+		h, err := resp.CheckHeader(s, seq)
 		if err != nil {
 			return err
 		}
@@ -402,7 +399,7 @@ func (s *NetlinkSocket) RequestMulti(reqb *NlMsgBuilder, consumer func (*NlMsgBu
 			break
 		}
 
-		consumer(respb)
+		consumer(resp)
 	}
 
 	return nil

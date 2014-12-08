@@ -19,7 +19,7 @@ func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8, version uint8) (*GenlMsghdr)
 	return res
 }
 
-func (nlmsg *NlMsgButcher) ExpectGenlMsghdr(cmd uint8) (*GenlMsghdr, error) {
+func (nlmsg *NlMsgParser) ExpectGenlMsghdr(cmd uint8) (*GenlMsghdr, error) {
 	nlmsg.Align(syscall.NLMSG_ALIGNTO)
 	gh := genlMsghdrAt(nlmsg.data, nlmsg.pos)
 	if err := nlmsg.Advance(SizeofGenlMsghdr); err != nil {
