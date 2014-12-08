@@ -260,10 +260,27 @@ func (attrs Attrs) GetUint16(typ uint16) (uint16, error) {
 	}
 
 	if len(val) != 2 {
-		return 0, err
+		return 0, fmt.Errorf("uint16 attribute %d has wrong length (%d bytes)", typ, len(val))
 	}
 
 	return *(*uint16)(unsafe.Pointer(&val[0])), nil
+}
+
+func (attrs Attrs) GetString(typ uint16) (string, error) {
+	val, err := attrs.Get(typ)
+	if err != nil {
+		return "", err
+	}
+
+	if len(val) == 0 {
+		return "", fmt.Errorf("string attribute %d has zero length", typ);
+	}
+
+	if val[len(val) - 1] != 0 {
+		return "", fmt.Errorf("string attribute %d does not end with nul byte", typ);
+	}
+
+	return string(val[0:len(val) - 1]), nil
 }
 
 func (nlmsg *NlMsgButcher) checkData(l uintptr, obj string) error {
@@ -329,6 +346,8 @@ func (s *NetlinkSocket) recv(peer uint32) ([]byte, error) {
         }
 }
 
+const RequestFlags = syscall.NLM_F_REQUEST
+
 func (s *NetlinkSocket) Request(reqb *NlMsgBuilder) (*NlMsgButcher, error) {
 	req, seq := reqb.Finish()
 	if err := s.send(req); err != nil {
@@ -348,6 +367,8 @@ func (s *NetlinkSocket) Request(reqb *NlMsgBuilder) (*NlMsgButcher, error) {
 
 	return respb, nil
 }
+
+const DumpFlags = syscall.NLM_F_DUMP | syscall.NLM_F_REQUEST
 
 func (s *NetlinkSocket) RequestMulti(reqb *NlMsgBuilder, consumer func (*NlMsgButcher)) error {
 	req, seq := reqb.Finish()

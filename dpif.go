@@ -75,12 +75,49 @@ func (nlmsg *NlMsgBuilder) PutOvsHeader(ifindex int32) {
 	h.DpIfIndex = ifindex
 }
 
+func (nlmsg *NlMsgButcher) TakeOvsHeader() (*OvsHeader, error) {
+	nlmsg.Align(syscall.NLMSG_ALIGNTO)
+	h := ovsHeaderAt(nlmsg.data, nlmsg.pos)
+	if err := nlmsg.Advance(SizeofOvsHeader); err != nil {
+		return nil, err
+	}
+
+	return h, nil
+}
+
 func (dpif *Dpif) EnumerateDatapaths() error {
-	req := NewNlMsgBuilder(syscall.NLM_F_DUMP | syscall.NLM_F_REQUEST, dpif.familyIds[DATAPATH])
+	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[DATAPATH])
 	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
 	req.PutOvsHeader(0)
 
-	err := dpif.sock.RequestMulti(req, func (resp *NlMsgButcher) {})
+	consumer := func (resp *NlMsgButcher) {
+		if _, err := resp.ExpectNlMsghdr(dpif.familyIds[DATAPATH]); err != nil {
+			panic(err)
+		}
+
+		if _, err := resp.ExpectGenlMsghdr(OVS_DP_CMD_NEW); err != nil {
+			panic(err)
+		}
+
+		ovshdr, err := resp.TakeOvsHeader()
+		if err != nil {
+			panic(err)
+		}
+
+		attrs, err := resp.TakeAttrs()
+		if err != nil {
+			panic(err)
+		}
+
+		name, err := attrs.GetString(OVS_DP_ATTR_NAME)
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Printf("YYY %d %s %v\n", ovshdr.DpIfIndex, name, attrs)
+	}
+
+	err := dpif.sock.RequestMulti(req, consumer)
 	if err != nil {
 		return err
 	}
@@ -91,7 +128,7 @@ func (dpif *Dpif) EnumerateDatapaths() error {
 func (dpif *Dpif) CreateDatapath(name string) error {
 	var features uint32 = OVS_DP_F_UNALIGNED | OVS_DP_F_VPORT_PIDS
 
-	req := NewNlMsgBuilder(syscall.NLM_F_REQUEST, dpif.familyIds[DATAPATH])
+	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[DATAPATH])
 	req.PutGenlMsghdr(OVS_DP_CMD_NEW, OVS_DATAPATH_VERSION)
 	req.PutOvsHeader(0)
 	req.PutStringAttr(OVS_DP_ATTR_NAME, name)

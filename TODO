@@ -31,13 +31,15 @@ Open datapth, close datapath
 
 Butcher -> Parser
 
-Can have combined NlMsgBuilder AlignAndGrow
+Can have combined NlMsgBuilder AlignAndGrow.  Also, align and advance
+
+Handle multiple netlink messages in single receive?
+
+Handle NLM_F_DUMP_INTR
 
 That PutAttrs sutff might be a waste of time?
 
 Put enum name comments in syscall.go
-
-Fold checkResponse into NewNlMsgButcher
 
 Do we need to grow buffer when reading?
 
