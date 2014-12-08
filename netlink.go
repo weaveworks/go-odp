@@ -219,6 +219,9 @@ func (nlmsg *NlMsgButcher) CheckHeader(s *NetlinkSocket, expectedSeq uint32) (*s
 		if nlerr.Error != 0 {
 			return nil, NetlinkError{syscall.Errno(-nlerr.Error)}
 		}
+
+		// an error code of 0 means the erorr is an ack, so
+		// return normally.
 	}
 
 	if align(nlmsg.pos + int(h.Len), syscall.NLMSG_ALIGNTO) < len(nlmsg.data) {
@@ -245,8 +248,8 @@ func (nlmsg *NlMsgButcher) ExpectNlMsghdr(typ uint16) (*syscall.NlMsghdr, error)
 type Attrs map[uint16][]byte
 
 func (attrs Attrs) Get(typ uint16) ([]byte, error) {
-	val := attrs[typ]
-	if val == nil {
+	val, ok := attrs[typ]
+	if !ok {
 		return nil, fmt.Errorf("missing attribute %d", typ)
 	}
 
@@ -346,8 +349,12 @@ func (s *NetlinkSocket) recv(peer uint32) ([]byte, error) {
         }
 }
 
-const RequestFlags = syscall.NLM_F_REQUEST
+// Some generic netlink operations always return a reply message (e.g
+// *_GET), others don't by default (e.g. *_NEW).  In the latter case,
+// NLM_F_ECHO forces a reply.  This is undocumented AFAICT.
+const RequestFlags = syscall.NLM_F_REQUEST | syscall.NLM_F_ECHO
 
+// Do a netlink request that yields a single response message.
 func (s *NetlinkSocket) Request(reqb *NlMsgBuilder) (*NlMsgButcher, error) {
 	req, seq := reqb.Finish()
 	if err := s.send(req); err != nil {
@@ -370,6 +377,7 @@ func (s *NetlinkSocket) Request(reqb *NlMsgBuilder) (*NlMsgButcher, error) {
 
 const DumpFlags = syscall.NLM_F_DUMP | syscall.NLM_F_REQUEST
 
+// Do a netlink request that yield multiple response messages.
 func (s *NetlinkSocket) RequestMulti(reqb *NlMsgBuilder, consumer func (*NlMsgButcher)) error {
 	req, seq := reqb.Finish()
 	if err := s.send(req); err != nil {

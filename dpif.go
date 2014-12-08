@@ -85,36 +85,50 @@ func (nlmsg *NlMsgButcher) TakeOvsHeader() (*OvsHeader, error) {
 	return h, nil
 }
 
+type DatapathInfo struct {
+	ifindex int32
+	name string
+}
+
+func (dpif *Dpif) makeDatapathInfo(msg *NlMsgButcher) (*DatapathInfo, error) {
+	if _, err := msg.ExpectNlMsghdr(dpif.familyIds[DATAPATH]); err != nil {
+		return nil, err
+	}
+
+	if _, err := msg.ExpectGenlMsghdr(OVS_DP_CMD_NEW); err != nil {
+		return nil, err
+	}
+
+	ovshdr, err := msg.TakeOvsHeader()
+	if err != nil {
+		return nil, err
+	}
+
+	attrs, err := msg.TakeAttrs()
+	if err != nil {
+		return nil, err
+	}
+
+	name, err := attrs.GetString(OVS_DP_ATTR_NAME)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DatapathInfo{ifindex: ovshdr.DpIfIndex, name: name}, nil
+}
+
 func (dpif *Dpif) EnumerateDatapaths() error {
 	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[DATAPATH])
 	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
 	req.PutOvsHeader(0)
 
 	consumer := func (resp *NlMsgButcher) {
-		if _, err := resp.ExpectNlMsghdr(dpif.familyIds[DATAPATH]); err != nil {
-			panic(err)
-		}
-
-		if _, err := resp.ExpectGenlMsghdr(OVS_DP_CMD_NEW); err != nil {
-			panic(err)
-		}
-
-		ovshdr, err := resp.TakeOvsHeader()
+		dpi, err := dpif.makeDatapathInfo(resp)
 		if err != nil {
 			panic(err)
 		}
 
-		attrs, err := resp.TakeAttrs()
-		if err != nil {
-			panic(err)
-		}
-
-		name, err := attrs.GetString(OVS_DP_ATTR_NAME)
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Printf("YYY %d %s %v\n", ovshdr.DpIfIndex, name, attrs)
+		fmt.Printf("YYY %v\n", dpi)
 	}
 
 	err := dpif.sock.RequestMulti(req, consumer)
@@ -125,7 +139,12 @@ func (dpif *Dpif) EnumerateDatapaths() error {
 	return nil
 }
 
-func (dpif *Dpif) CreateDatapath(name string) error {
+type Datapath struct {
+	dpif *Dpif
+	ifindex int32
+}
+
+func (dpif *Dpif) CreateDatapath(name string) (*Datapath, error) {
 	var features uint32 = OVS_DP_F_UNALIGNED | OVS_DP_F_VPORT_PIDS
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[DATAPATH])
@@ -135,10 +154,49 @@ func (dpif *Dpif) CreateDatapath(name string) error {
 	req.PutUint32Attr(OVS_DP_ATTR_UPCALL_PID, 0)
 	req.PutUint32Attr(OVS_DP_ATTR_USER_FEATURES, features)
 
-	_, err := dpif.sock.Request(req)
+	resp, err := dpif.sock.Request(req)
+	if err != nil {
+		return nil, err
+	}
+
+	dpi, err := dpif.makeDatapathInfo(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Datapath{dpif: dpif, ifindex: dpi.ifindex}, nil
+}
+
+func (dpif *Dpif) LookupDatapath(name string) (*Datapath, error) {
+	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[DATAPATH])
+	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
+	req.PutOvsHeader(0)
+	req.PutStringAttr(OVS_DP_ATTR_NAME, name)
+
+	resp, err := dpif.sock.Request(req)
+	if err != nil {
+		return nil, err
+	}
+
+	dpi, err := dpif.makeDatapathInfo(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Datapath{dpif: dpif, ifindex: dpi.ifindex}, nil
+}
+
+func (dp *Datapath) Delete() error {
+	req := NewNlMsgBuilder(RequestFlags, dp.dpif.familyIds[DATAPATH])
+	req.PutGenlMsghdr(OVS_DP_CMD_DEL, OVS_DATAPATH_VERSION)
+	req.PutOvsHeader(dp.ifindex)
+
+	_, err := dp.dpif.sock.Request(req)
 	if err != nil {
 		return err
 	}
 
+	dp.dpif = nil
+	dp.ifindex = -1
 	return nil
 }
