@@ -1,8 +1,8 @@
-Simple enum/create/enum/delete/enum Test
-
 Can have combined NlMsgBuilder AlignAndGrow.  Also, align and advance
 
 Handle multiple netlink messages in single receive?
+
+Error handling in Enumerate
 
 Handle NLM_F_DUMP_INTR
 
