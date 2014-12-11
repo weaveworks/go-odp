@@ -151,8 +151,25 @@ type NlMsgParser struct {
 	pos int
 }
 
-func NewNlMsgParser(data []byte) *NlMsgParser {
-	return &NlMsgParser{data: data, pos: 0}
+func (msg *NlMsgParser) nextNlMsg() (*NlMsgParser, error) {
+	pos := msg.pos
+	avail := len(msg.data) - pos
+	if avail <= 0 {
+		return nil, nil
+	}
+
+	if avail < syscall.SizeofNlMsghdr {
+		return nil, fmt.Errorf("netlink message header truncated")
+	}
+
+	h := nlMsghdrAt(msg.data, pos)
+	if avail < int(h.Len) {
+		return nil, fmt.Errorf("netlink message truncated (%d bytes available, %d expected)", avail, h.Len)
+	}
+
+	end := pos + int(h.Len)
+	msg.pos = align(end, syscall.NLMSG_ALIGNTO)
+	return &NlMsgParser{data: msg.data[:end], pos: pos}, nil
 }
 
 func (nlmsg *NlMsgParser) CheckAvailable(size uintptr) error {
@@ -182,18 +199,8 @@ func (nlmsg *NlMsgParser) AlignAdvance(a int, size uintptr) (int, error) {
 	return pos, nil
 }
 
-func (nlmsg *NlMsgParser) CheckHeader(s *NetlinkSocket, expectedSeq uint32) (*syscall.NlMsghdr, error) {
-	err := nlmsg.CheckAvailable(syscall.SizeofNlMsghdr)
-	if err != nil {
-		return nil, err
-	}
-
+func (nlmsg *NlMsgParser) checkHeader(s *NetlinkSocket, expectedSeq uint32) (*syscall.NlMsghdr, error) {
 	h := nlMsghdrAt(nlmsg.data, nlmsg.pos)
-	err = nlmsg.CheckAvailable(uintptr(h.Len))
-	if err != nil {
-		return nil, err
-	}
-
 	if h.Pid != s.addr.Pid {
 		return nil, fmt.Errorf("netlink reply pid mismatch (got %d, expected %d)", h.Pid, s.addr.Pid)
 	}
@@ -211,10 +218,6 @@ func (nlmsg *NlMsgParser) CheckHeader(s *NetlinkSocket, expectedSeq uint32) (*sy
 
 		// an error code of 0 means the erorr is an ack, so
 		// return normally.
-	}
-
-	if align(nlmsg.pos + int(h.Len), syscall.NLMSG_ALIGNTO) < len(nlmsg.data) {
-		return nil, fmt.Errorf("multiple netlink messages received")
 	}
 
 	return h, nil
@@ -320,8 +323,8 @@ func (s *NetlinkSocket) send(msg *NlMsgBuilder) (uint32, error) {
 }
 
 func (s *NetlinkSocket) recv(peer uint32) (*NlMsgParser, error) {
-        rb := make([]byte, syscall.Getpagesize())
-        nr, from, err := syscall.Recvfrom(s.fd, rb, 0)
+        buf := make([]byte, syscall.Getpagesize())
+        nr, from, err := syscall.Recvfrom(s.fd, buf, 0)
         if err != nil {
                 return nil, err
         }
@@ -332,7 +335,7 @@ func (s *NetlinkSocket) recv(peer uint32) (*NlMsgParser, error) {
 			return nil, fmt.Errorf("wrong netlink peer pid (expected %d, got %d)", peer, nlfrom.Pid)
 		}
 
-		return NewNlMsgParser(rb[:nr]), nil
+		return &NlMsgParser{data: buf[:nr], pos: 0}, nil
 
 	default:
 		return nil, fmt.Errorf("Expected netlink sockaddr, got %s", reflect.TypeOf(from))
@@ -347,21 +350,27 @@ const RequestFlags = syscall.NLM_F_REQUEST | syscall.NLM_F_ECHO
 // Do a netlink request that yields a single response message.
 func (s *NetlinkSocket) Request(req *NlMsgBuilder) (*NlMsgParser, error) {
 	seq, err := s.send(req)
-	if err != nil {
-		return nil, err
-        }
+	if err != nil { return nil, err }
 
 	resp, err := s.recv(0)
-        if err != nil {
-		return nil, err
-        }
+        if err != nil { return nil, err }
 
-	_, err = resp.CheckHeader(s, seq)
-	if err != nil {
-		return nil, err
+	msg, err := resp.nextNlMsg()
+	if err != nil { return nil, err }
+	if msg == nil {
+		return nil, fmt.Errorf("netlink response message missing")
 	}
 
-	return resp, nil
+	_, err = msg.checkHeader(s, seq)
+	if err != nil {	return nil, err	}
+
+	extra, err := resp.nextNlMsg()
+	if err != nil { return nil, err }
+	if extra != nil {
+		return nil, fmt.Errorf("unexpected netlink message")
+	}
+
+	return msg, nil
 }
 
 const DumpFlags = syscall.NLM_F_DUMP | syscall.NLM_F_REQUEST
@@ -369,27 +378,31 @@ const DumpFlags = syscall.NLM_F_DUMP | syscall.NLM_F_REQUEST
 // Do a netlink request that yield multiple response messages.
 func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func (*NlMsgParser)) error {
 	seq, err := s.send(req)
-	if err != nil {
-		return err
-        }
+	if err != nil { return err }
 
 	for {
 		resp, err := s.recv(0)
-		if err != nil {
-			return err
+		if err != nil { return err }
+
+		msg, err := resp.nextNlMsg()
+		if err != nil { return err }
+		if msg == nil {
+			return fmt.Errorf("netlink response message missing")
 		}
 
-		h, err := resp.CheckHeader(s, seq)
-		if err != nil {
-			return err
-		}
+		for {
+			h, err := msg.checkHeader(s, seq)
+			if err != nil {	return err }
 
-		if h.Type == syscall.NLMSG_DONE {
-			break
-		}
+			if h.Type == syscall.NLMSG_DONE {
+				return nil
+			}
 
-		consumer(resp)
+			consumer(msg)
+
+			msg, err = resp.nextNlMsg()
+			if err != nil { return err }
+			if msg == nil { break }
+		}
 	}
-
-	return nil
 }
