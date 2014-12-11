@@ -110,16 +110,6 @@ func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
 	return
 }
 
-type PutAttr func (*NlMsgBuilder)
-
-func (nlmsg *NlMsgBuilder) PutAttrs(attrs []PutAttr) {
-	if attrs != nil {
-		for i := range(attrs) {
-			attrs[i](nlmsg)
-		}
-	}
-}
-
 func (nlmsg *NlMsgBuilder) PutAttr(typ uint16, gen func()) {
 	nlmsg.Align(syscall.NLA_ALIGNTO)
 	pos := nlmsg.Grow(syscall.SizeofNlAttr)
@@ -136,23 +126,15 @@ func (nlmsg *NlMsgBuilder) PutUint32Attr(typ uint16, val uint32) {
 	})
 }
 
-func PutUint32Attr(typ uint16, val uint32) PutAttr {
-	return func (nlmsg *NlMsgBuilder) { nlmsg.PutUint32Attr(typ, val) }
-}
-
 func (nlmsg *NlMsgBuilder) putStringZ(str string) {
 	l := len(str)
-pos := nlmsg.Grow(uintptr(l) + 1)
+	pos := nlmsg.Grow(uintptr(l) + 1)
 	copy(nlmsg.buf[pos:], str)
 	nlmsg.buf[pos + l] = 0
 }
 
 func (nlmsg *NlMsgBuilder) PutStringAttr(typ uint16, str string) {
 	nlmsg.PutAttr(typ, func () { nlmsg.putStringZ(str) })
-}
-
-func PutStringAttr(typ uint16, str string) PutAttr {
-	return func (nlmsg *NlMsgBuilder) { nlmsg.PutStringAttr(typ, str) }
 }
 
 type NetlinkError struct {

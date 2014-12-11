@@ -1,12 +1,10 @@
 Can have combined NlMsgBuilder AlignAndGrow.  Also, align and advance
 
-Handle multiple netlink messages in single receive?
+Handle multiple netlink messages in single receive? (Test with large enum)
 
 Error handling in Enumerate
 
 Handle NLM_F_DUMP_INTR
-
-That PutAttrs sutff might be a waste of time?
 
 Put enum name comments in syscall.go
 
