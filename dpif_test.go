@@ -9,22 +9,26 @@ import (
 func TestDatapath(t *testing.T) {
 	dpif, err := NewDpif()
 	if err != nil { t.Fatal(err) }
+	defer dpif.Close()
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
 
 	dp, err := dpif.CreateDatapath(name)
 	if err != nil { t.Fatal(err) }
+	defer func () { if dpif != nil { dp.Delete() } }()
 
 	err = dp.Delete()
 	if err != nil { t.Fatal(err) }
 
 	err = dpif.Close()
 	if err != nil { t.Fatal(err) }
+	dpif = nil
 }
 
 func TestLookupDatapath(t *testing.T) {
 	dpif, err := NewDpif()
 	if err != nil { t.Fatal(err) }
+	defer dpif.Close()
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
 	dp, err := dpif.LookupDatapath(name)
@@ -33,6 +37,7 @@ func TestLookupDatapath(t *testing.T) {
 
 	dp, err = dpif.CreateDatapath(name)
 	if err != nil { t.Fatal(err) }
+	defer func () { if dpif != nil { dp.Delete() } }()
 
 	err = dpif.Close()
 	if err != nil { t.Fatal(err) }
@@ -49,16 +54,19 @@ func TestLookupDatapath(t *testing.T) {
 
 	err = dpif.Close()
 	if err != nil { t.Fatal(err) }
+	dpif = nil
 }
 
 func TestEnumerateDatapaths(t *testing.T) {
 	dpif, err := NewDpif()
 	if err != nil { t.Fatal(err) }
+	defer dpif.Close()
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
 
 	dp, err := dpif.CreateDatapath(name)
 	if err != nil { t.Fatal(err) }
+	defer func () { if dpif != nil { dp.Delete() } }()
 
 	dps, err := dpif.EnumerateDatapaths()
 	dp, ok := dps[name]
@@ -69,4 +77,5 @@ func TestEnumerateDatapaths(t *testing.T) {
 
 	err = dpif.Close()
 	if err != nil { t.Fatal(err) }
+	dpif = nil
 }

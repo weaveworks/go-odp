@@ -59,6 +59,7 @@ func NewDpif() (*Dpif, error) {
 }
 
 func (dpif *Dpif) Close() error {
+	if dpif.sock == nil { return nil }
 	err := dpif.sock.Close()
 	dpif.sock = nil
 	return err
