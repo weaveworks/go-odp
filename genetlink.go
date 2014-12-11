@@ -11,8 +11,7 @@ func genlMsghdrAt(data []byte, pos int) *GenlMsghdr {
 }
 
 func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8, version uint8) (*GenlMsghdr) {
-	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	pos := nlmsg.Grow(SizeofGenlMsghdr)
+	pos := nlmsg.AlignGrow(syscall.NLMSG_ALIGNTO, SizeofGenlMsghdr)
 	res := genlMsghdrAt(nlmsg.buf, pos)
 	res.Cmd = cmd
 	res.Version = version
@@ -20,12 +19,12 @@ func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8, version uint8) (*GenlMsghdr)
 }
 
 func (nlmsg *NlMsgParser) ExpectGenlMsghdr(cmd uint8) (*GenlMsghdr, error) {
-	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	gh := genlMsghdrAt(nlmsg.data, nlmsg.pos)
-	if err := nlmsg.Advance(SizeofGenlMsghdr); err != nil {
+	pos, err := nlmsg.AlignAdvance(syscall.NLMSG_ALIGNTO, SizeofGenlMsghdr)
+	if err != nil {
 		return nil, err
 	}
 
+	gh := genlMsghdrAt(nlmsg.data, pos)
 	if gh.Cmd != cmd {
 		return nil, fmt.Errorf("generic netlink response has wrong cmd (got %d, expected %d)", gh.Cmd, cmd)
 	}

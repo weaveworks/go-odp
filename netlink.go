@@ -84,18 +84,20 @@ func expand(buf []byte, l int) []byte {
 	return new
 }
 
-func (nlmsg *NlMsgBuilder) Align(a int) {
-	l := align(len(nlmsg.buf), a)
-	if l > cap(nlmsg.buf) { nlmsg.buf = expand(nlmsg.buf, l) }
-	nlmsg.buf = nlmsg.buf[:l]
-}
-
 func (nlmsg *NlMsgBuilder) Grow(size uintptr) int {
 	pos := len(nlmsg.buf)
 	l := pos + int(size)
 	if l > cap(nlmsg.buf) { nlmsg.buf = expand(nlmsg.buf, l) }
 	nlmsg.buf = nlmsg.buf[:l]
 	return pos
+}
+
+func (nlmsg *NlMsgBuilder) AlignGrow(a int, size uintptr) int {
+	apos := align(len(nlmsg.buf), a)
+	l := apos + int(size)
+	if l > cap(nlmsg.buf) { nlmsg.buf = expand(nlmsg.buf, l) }
+	nlmsg.buf = nlmsg.buf[:l]
+	return apos
 }
 
 var nextSeqNo uint32
@@ -111,8 +113,7 @@ func (nlmsg *NlMsgBuilder) Finish() (res []byte, seq uint32) {
 }
 
 func (nlmsg *NlMsgBuilder) PutAttr(typ uint16, gen func()) {
-	nlmsg.Align(syscall.NLA_ALIGNTO)
-	pos := nlmsg.Grow(syscall.SizeofNlAttr)
+	pos := nlmsg.AlignGrow(syscall.NLA_ALIGNTO, syscall.SizeofNlAttr)
 	gen()
 	nla := nlAttrAt(nlmsg.buf, pos)
 	nla.Type = typ
@@ -154,25 +155,31 @@ func NewNlMsgParser(data []byte) *NlMsgParser {
 	return &NlMsgParser{data: data, pos: 0}
 }
 
-func (nlmsg *NlMsgParser) Align(a int) {
-	nlmsg.pos = align(nlmsg.pos, a)
-}
-
-func (nlmsg *NlMsgParser) CheckAvailable(n uintptr) error {
-	if nlmsg.pos + int(n) > len(nlmsg.data) {
+func (nlmsg *NlMsgParser) CheckAvailable(size uintptr) error {
+	if nlmsg.pos + int(size) > len(nlmsg.data) {
 		return fmt.Errorf("netlink message truncated")
 	}
 
 	return nil
 }
 
-func (nlmsg *NlMsgParser) Advance(n uintptr) error {
-	if err := nlmsg.CheckAvailable(n); err != nil {
+func (nlmsg *NlMsgParser) Advance(size uintptr) error {
+	if err := nlmsg.CheckAvailable(size); err != nil {
 		return err
 	}
 
-	nlmsg.pos += int(n)
+	nlmsg.pos += int(size)
 	return nil
+}
+
+func (nlmsg *NlMsgParser) AlignAdvance(a int, size uintptr) (int, error) {
+	pos := align(nlmsg.pos, a)
+	nlmsg.pos = pos
+	if err := nlmsg.Advance(size); err != nil {
+		return 0, err
+	}
+
+	return pos, nil
 }
 
 func (nlmsg *NlMsgParser) CheckHeader(s *NetlinkSocket, expectedSeq uint32) (*syscall.NlMsghdr, error) {

@@ -69,20 +69,18 @@ func ovsHeaderAt(data []byte, pos int) *OvsHeader {
 }
 
 func (nlmsg *NlMsgBuilder) PutOvsHeader(ifindex int32) {
-	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	pos := nlmsg.Grow(SizeofOvsHeader)
+	pos := nlmsg.AlignGrow(syscall.NLMSG_ALIGNTO, SizeofOvsHeader)
 	h := ovsHeaderAt(nlmsg.buf, pos)
 	h.DpIfIndex = ifindex
 }
 
 func (nlmsg *NlMsgParser) TakeOvsHeader() (*OvsHeader, error) {
-	nlmsg.Align(syscall.NLMSG_ALIGNTO)
-	h := ovsHeaderAt(nlmsg.data, nlmsg.pos)
-	if err := nlmsg.Advance(SizeofOvsHeader); err != nil {
+	pos, err := nlmsg.AlignAdvance(syscall.NLMSG_ALIGNTO, SizeofOvsHeader)
+	if err != nil {
 		return nil, err
 	}
 
-	return h, nil
+	return ovsHeaderAt(nlmsg.data, pos), nil
 }
 
 type datapathInfo struct {
