@@ -206,7 +206,15 @@ func (nlmsg *NlMsgParser) checkHeader(s *NetlinkSocket, expectedSeq uint32) (*sy
 	}
 
 	if h.Seq != expectedSeq {
-		return nil, fmt.Errorf("netlink reply sequence number mismatch (got %d, expected %d)", h.Seq, expectedSeq)
+		// This doesn't necessarily indicate an error.  For
+		// example, if a requestMulti was interrupted due to
+		// an error, we might still be getting response
+		// messages back, that we should simply discard.  On
+		// the other hand, sequence number mismatches might
+		// indicate bugs, so it is sometimes nice to see them
+		// in development.
+		fmt.Printf("netlink reply sequence number mismatch (got %d, expected %d)", h.Seq, expectedSeq)
+		return nil, nil
 	}
 
 	if h.Type == syscall.NLMSG_ERROR {
@@ -352,31 +360,34 @@ func (s *NetlinkSocket) Request(req *NlMsgBuilder) (*NlMsgParser, error) {
 	seq, err := s.send(req)
 	if err != nil { return nil, err }
 
-	resp, err := s.recv(0)
-        if err != nil { return nil, err }
+	for {
+		resp, err := s.recv(0)
+		if err != nil { return nil, err }
 
-	msg, err := resp.nextNlMsg()
-	if err != nil { return nil, err }
-	if msg == nil {
-		return nil, fmt.Errorf("netlink response message missing")
+		msg, err := resp.nextNlMsg()
+		if err != nil { return nil, err }
+		if msg == nil {
+			return nil, fmt.Errorf("netlink response message missing")
+		}
+
+		h, err := msg.checkHeader(s, seq)
+		if err != nil {	return nil, err	}
+		if h == nil { continue }
+
+		extra, err := resp.nextNlMsg()
+		if err != nil { return nil, err }
+		if extra != nil {
+			return nil, fmt.Errorf("unexpected netlink message")
+		}
+
+		return msg, nil
 	}
-
-	_, err = msg.checkHeader(s, seq)
-	if err != nil {	return nil, err	}
-
-	extra, err := resp.nextNlMsg()
-	if err != nil { return nil, err }
-	if extra != nil {
-		return nil, fmt.Errorf("unexpected netlink message")
-	}
-
-	return msg, nil
 }
 
 const DumpFlags = syscall.NLM_F_DUMP | syscall.NLM_F_REQUEST
 
 // Do a netlink request that yield multiple response messages.
-func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func (*NlMsgParser)) error {
+func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func (*NlMsgParser) error) error {
 	seq, err := s.send(req)
 	if err != nil { return err }
 
@@ -394,11 +405,14 @@ func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func (*NlMsgPar
 			h, err := msg.checkHeader(s, seq)
 			if err != nil {	return err }
 
-			if h.Type == syscall.NLMSG_DONE {
-				return nil
-			}
+			if h != nil {
+				if h.Type == syscall.NLMSG_DONE {
+					return nil
+				}
 
-			consumer(msg)
+				err = consumer(msg)
+				if err != nil { return err }
+			}
 
 			msg, err = resp.nextNlMsg()
 			if err != nil { return err }

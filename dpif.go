@@ -175,13 +175,11 @@ func (dpif *Dpif) EnumerateDatapaths() (map[string]*Datapath, error) {
 	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
 	req.PutOvsHeader(0)
 
-	consumer := func (resp *NlMsgParser) {
+	consumer := func (resp *NlMsgParser) error {
 		dpi, err := dpif.makeDatapathInfo(resp)
-		if err != nil {
-			panic(err)
-		}
-
+		if err != nil {	return err }
 		res[dpi.name] = &Datapath{dpif: dpif, ifindex: dpi.ifindex}
+		return nil
 	}
 
 	err := dpif.sock.RequestMulti(req, consumer)

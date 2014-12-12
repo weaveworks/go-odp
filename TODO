@@ -1,7 +1,3 @@
-Handle multiple netlink messages in single receive? (Test with large enum)
-
-Error handling in Enumerate
-
 Handle NLM_F_DUMP_INTR
 
 Put enum name comments in syscall.go
