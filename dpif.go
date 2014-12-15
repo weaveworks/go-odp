@@ -252,6 +252,32 @@ func (dp *Datapath) CreatePort(name string) (*Port, error) {
 	return &Port{datapath: dp, portNo: pi.portNo}, nil
 }
 
+func (dp *Datapath) LookupPort(name string) (*Port, error) {
+	dpif := dp.dpif
+
+	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
+	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
+	req.PutOvsHeader(dp.ifindex)
+	req.PutStringAttr(OVS_VPORT_ATTR_NAME, name)
+
+	resp, err := dpif.sock.Request(req)
+	if err != nil {
+		if e, ok := err.(NetlinkError); ok && e.Errno == syscall.ENODEV {
+			// no port with the given name
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	pi, err := dp.makePortInfo(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Port{datapath: dp, portNo: pi.portNo}, nil
+}
+
 func (port *Port) Delete() error {
 	dpif := port.datapath.dpif
 
