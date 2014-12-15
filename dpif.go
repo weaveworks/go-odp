@@ -278,6 +278,29 @@ func (dp *Datapath) LookupPort(name string) (*Port, error) {
 	return &Port{datapath: dp, portNo: pi.portNo}, nil
 }
 
+func (dp *Datapath) EnumeratePorts() (map[string]*Port, error) {
+	dpif := dp.dpif
+	res := make(map[string]*Port)
+
+	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[VPORT])
+	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
+	req.PutOvsHeader(dp.ifindex)
+
+	consumer := func (resp *NlMsgParser) error {
+		pi, err := dp.makePortInfo(resp)
+		if err != nil {	return err }
+		res[pi.name] = &Port{datapath: dp, portNo: pi.portNo}
+		return nil
+	}
+
+	err := dpif.sock.RequestMulti(req, consumer)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+
 func (port *Port) Delete() error {
 	dpif := port.datapath.dpif
 

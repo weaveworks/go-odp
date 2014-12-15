@@ -158,3 +158,52 @@ func TestLookupPort(t *testing.T) {
 
 	maybeFatal(t, port.Delete())
 }
+
+func TestEnumeratePorts(t *testing.T) {
+	dpif, err := NewDpif()
+	maybeFatal(t, err)
+	defer checkedCloseDpif(dpif, t)
+
+	dp, err := dpif.CreateDatapath(fmt.Sprintf("test%d", rand.Intn(100000)))
+	maybeFatal(t, err)
+	defer checkedDeleteDatapath(dp, t)
+
+	const n = 10
+	var names [n]string
+	var ports [n]*Port
+
+	cleanup := func () {
+		for i := range(ports) {
+			if ports[i] != nil {
+				ports[i].Delete()
+			}
+
+			ports[i] = nil
+		}
+	}
+
+	defer cleanup()
+
+	for i := range(names) {
+		names[i] = fmt.Sprintf("test%d", rand.Intn(100000))
+		port, err := dp.CreatePort(names[i])
+		maybeFatal(t, err)
+		ports[i] = port
+	}
+
+	name2port, err := dp.EnumeratePorts()
+	maybeFatal(t, err)
+	for i := range(names) {
+		_, ok := name2port[names[i]]
+		if !ok { t.Fatal() }
+	}
+
+	cleanup()
+
+	name2port, err = dp.EnumeratePorts()
+	maybeFatal(t, err)
+	for i := range(names) {
+		_, ok := name2port[names[i]]
+		if ok { t.Fatal() }
+	}
+}
