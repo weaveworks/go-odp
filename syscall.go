@@ -49,6 +49,7 @@ const SizeofOvsHeader = 4
 
 const (
 	OVS_DATAPATH_VERSION = 2
+	OVS_VPORT_VERSION = 1
 )
 
 const ( // ovs_datapath_cmd
@@ -66,6 +67,32 @@ const ( // ovs_datapath_attr
         OVS_DP_ATTR_STATS = 3
         OVS_DP_ATTR_MEGAFLOW_STATS = 4
         OVS_DP_ATTR_USER_FEATURES = 5
+)
+
+const ( // ovs_vport_cmd
+        OVS_VPORT_CMD_UNSPEC = 0
+        OVS_VPORT_CMD_NEW = 1
+        OVS_VPORT_CMD_DEL = 2
+        OVS_VPORT_CMD_GET = 3
+        OVS_VPORT_CMD_SET = 4
+)
+
+const ( // ovs_vport_attr
+        OVS_VPORT_ATTR_UNSPEC = 0
+        OVS_VPORT_ATTR_PORT_NO = 1
+        OVS_VPORT_ATTR_TYPE = 2
+        OVS_VPORT_ATTR_NAME = 3
+        OVS_VPORT_ATTR_OPTIONS = 4
+        OVS_VPORT_ATTR_UPCALL_PID = 5
+        OVS_VPORT_ATTR_STATS = 6
+)
+
+const ( // ovs_vport_type {
+        OVS_VPORT_TYPE_UNSPEC = 0
+        OVS_VPORT_TYPE_NETDEV = 1
+        OVS_VPORT_TYPE_INTERNAL = 2
+        OVS_VPORT_TYPE_GRE = 3
+        OVS_VPORT_TYPE_VXLAN = 4
 )
 
 const (

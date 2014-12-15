@@ -89,31 +89,22 @@ type datapathInfo struct {
 	name string
 }
 
-func (dpif *Dpif) makeDatapathInfo(msg *NlMsgParser) (*datapathInfo, error) {
-	if _, err := msg.ExpectNlMsghdr(dpif.familyIds[DATAPATH]); err != nil {
-		return nil, err
-	}
+func (dpif *Dpif) makeDatapathInfo(msg *NlMsgParser) (res datapathInfo, err error) {
+	_, err = msg.ExpectNlMsghdr(dpif.familyIds[DATAPATH])
+	if err != nil { return }
 
-	if _, err := msg.ExpectGenlMsghdr(OVS_DP_CMD_NEW); err != nil {
-		return nil, err
-	}
+	_, err = msg.ExpectGenlMsghdr(OVS_DP_CMD_NEW)
+	if err != nil { return }
 
 	ovshdr, err := msg.TakeOvsHeader()
-	if err != nil {
-		return nil, err
-	}
+	if err != nil { return }
+	res.ifindex = ovshdr.DpIfIndex
 
 	attrs, err := msg.TakeAttrs()
-	if err != nil {
-		return nil, err
-	}
+	if err != nil { return }
 
-	name, err := attrs.GetString(OVS_DP_ATTR_NAME)
-	if err != nil {
-		return nil, err
-	}
-
-	return &datapathInfo{ifindex: ovshdr.DpIfIndex, name: name}, nil
+	res.name, err = attrs.GetString(OVS_DP_ATTR_NAME)
+	return
 }
 
 type Datapath struct {
@@ -203,4 +194,62 @@ func (dp *Datapath) Delete() error {
 	dp.dpif = nil
 	dp.ifindex = -1
 	return nil
+}
+
+type portInfo struct {
+	portNo uint32
+	name string
+}
+
+func (dp *Datapath) makePortInfo(msg *NlMsgParser) (res portInfo, err error) {
+	_, err = msg.ExpectNlMsghdr(dp.dpif.familyIds[VPORT])
+	if err != nil { return }
+
+	_, err = msg.ExpectGenlMsghdr(OVS_VPORT_CMD_NEW)
+	if err != nil { return }
+
+	ovshdr, err := msg.TakeOvsHeader()
+	if err != nil { return }
+
+	if ovshdr.DpIfIndex != dp.ifindex {
+		err = fmt.Errorf("wrong datapath ifindex in response (got %d, expected %d)", ovshdr.DpIfIndex, dp.ifindex)
+		return
+	}
+
+	attrs, err := msg.TakeAttrs()
+	if err != nil { return }
+
+	res.portNo, err = attrs.GetUint32(OVS_VPORT_ATTR_PORT_NO)
+	if err != nil { return }
+
+	res.name, err = attrs.GetString(OVS_VPORT_ATTR_NAME)
+	return
+}
+
+type Port struct {
+	datapath *Datapath
+	portNo uint32
+}
+
+func (dp *Datapath) CreatePort(name string) (*Port, error) {
+	dpif := dp.dpif
+
+	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
+	req.PutGenlMsghdr(OVS_VPORT_CMD_NEW, OVS_VPORT_VERSION)
+	req.PutOvsHeader(dp.ifindex)
+	req.PutStringAttr(OVS_VPORT_ATTR_NAME, name)
+	req.PutUint32Attr(OVS_VPORT_ATTR_TYPE, OVS_VPORT_TYPE_INTERNAL)
+	req.PutUint32Attr(OVS_VPORT_ATTR_UPCALL_PID, dpif.sock.Pid())
+
+	resp, err := dpif.sock.Request(req)
+	if err != nil {
+		return nil, err
+	}
+
+	pi, err := dp.makePortInfo(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Port{datapath: dp, portNo: pi.portNo}, nil
 }

@@ -1,16 +1,16 @@
+Port deletion, lookup, enumeration
+
 Handle NLM_F_DUMP_INTR
 
 Put enum name comments in syscall.go
 
-Do we need to grow buffer when reading?
+Use MSG_TRUNC on recv, and a large reusable buffer.
 
 Netlink message dumper
 
 Set O_DONTBLOCK on recvs?
 
-Check for MSG_TRUNC flag
-
-Nandle the flag bits in nlattr type field
+Handle the flag bits in nlattr type field
 
 Follow netlink-socket.c:1106: mutex around receiving on netlink socket
 to avoid in-kernel race.

@@ -104,3 +104,25 @@ func TestEnumerateDatapaths(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	dpif = nil
 }
+
+func TestPort(t *testing.T) {
+	dpif, err := NewDpif()
+	if err != nil { t.Fatal(err) }
+	defer dpif.Close()
+
+	dpname := fmt.Sprintf("test%d", rand.Intn(100000))
+	dp, err := dpif.CreateDatapath(dpname)
+	if err != nil { t.Fatal(err) }
+	defer func () { if dpif != nil { dp.Delete() } }()
+
+	name := fmt.Sprintf("test%d", rand.Intn(100000))
+	_, err = dp.CreatePort(name)
+	if err != nil { t.Fatal(err) }
+
+	err = dp.Delete()
+	if err != nil { t.Fatal(err) }
+
+	err = dpif.Close()
+	if err != nil { t.Fatal(err) }
+	dpif = nil
+}

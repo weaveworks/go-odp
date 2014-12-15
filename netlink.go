@@ -44,6 +44,10 @@ func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
         }
 }
 
+func (s *NetlinkSocket) Pid() uint32 {
+	return s.addr.Pid
+}
+
 func (s *NetlinkSocket) Close() error {
         return syscall.Close(s.fd)
 }
@@ -201,8 +205,8 @@ func (nlmsg *NlMsgParser) AlignAdvance(a int, size uintptr) (int, error) {
 
 func (nlmsg *NlMsgParser) checkHeader(s *NetlinkSocket, expectedSeq uint32) (*syscall.NlMsghdr, error) {
 	h := nlMsghdrAt(nlmsg.data, nlmsg.pos)
-	if h.Pid != s.addr.Pid {
-		return nil, fmt.Errorf("netlink reply pid mismatch (got %d, expected %d)", h.Pid, s.addr.Pid)
+	if h.Pid != s.Pid() {
+		return nil, fmt.Errorf("netlink reply pid mismatch (got %d, expected %d)", h.Pid, s.Pid())
 	}
 
 	if h.Seq != expectedSeq {
@@ -267,6 +271,19 @@ func (attrs Attrs) GetUint16(typ uint16) (uint16, error) {
 	}
 
 	return *(*uint16)(unsafe.Pointer(&val[0])), nil
+}
+
+func (attrs Attrs) GetUint32(typ uint16) (uint32, error) {
+	val, err := attrs.Get(typ)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(val) != 4 {
+		return 0, fmt.Errorf("uint32 attribute %d has wrong length (%d bytes)", typ, len(val))
+	}
+
+	return *(*uint32)(unsafe.Pointer(&val[0])), nil
 }
 
 func (attrs Attrs) GetString(typ uint16) (string, error) {
