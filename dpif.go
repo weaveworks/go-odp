@@ -187,9 +187,7 @@ func (dp *Datapath) Delete() error {
 	req.PutOvsHeader(dp.ifindex)
 
 	_, err := dp.dpif.sock.Request(req)
-	if err != nil {
-		return err
-	}
+	if err != nil {	return err }
 
 	dp.dpif = nil
 	dp.ifindex = -1
@@ -252,4 +250,20 @@ func (dp *Datapath) CreatePort(name string) (*Port, error) {
 	}
 
 	return &Port{datapath: dp, portNo: pi.portNo}, nil
+}
+
+func (port *Port) Delete() error {
+	dpif := port.datapath.dpif
+
+	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
+	req.PutGenlMsghdr(OVS_VPORT_CMD_DEL, OVS_VPORT_VERSION)
+	req.PutOvsHeader(port.datapath.ifindex)
+	req.PutUint32Attr(OVS_VPORT_ATTR_PORT_NO, port.portNo)
+
+	_, err := dpif.sock.Request(req)
+	if err != nil { return err }
+
+	port.datapath = nil
+	port.portNo = ^uint32(0)
+	return nil
 }

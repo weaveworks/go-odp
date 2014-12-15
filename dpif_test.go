@@ -116,7 +116,10 @@ func TestPort(t *testing.T) {
 	defer func () { if dpif != nil { dp.Delete() } }()
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
-	_, err = dp.CreatePort(name)
+	port, err := dp.CreatePort(name)
+	if err != nil { t.Fatal(err) }
+
+	err = port.Delete()
 	if err != nil { t.Fatal(err) }
 
 	err = dp.Delete()
