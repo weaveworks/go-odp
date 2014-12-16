@@ -69,9 +69,9 @@ func TestEnumerateDatapaths(t *testing.T) {
 	var dps [n]*Datapath
 
 	cleanup := func () {
-		for i := range(dps) {
-			if dps[i] != nil {
-				dps[i].Delete()
+		for i, dp := range(dps) {
+			if dp != nil {
+				dp.Delete()
 			}
 
 			dps[i] = nil
@@ -89,8 +89,8 @@ func TestEnumerateDatapaths(t *testing.T) {
 
 	name2dp, err := dpif.EnumerateDatapaths()
 	maybeFatal(t, err)
-	for i := range(names) {
-		_, ok := name2dp[names[i]]
+	for _, name := range(names) {
+		_, ok := name2dp[name]
 		if !ok { t.Fatal() }
 	}
 
@@ -98,8 +98,8 @@ func TestEnumerateDatapaths(t *testing.T) {
 
 	name2dp, err = dpif.EnumerateDatapaths()
 	maybeFatal(t, err)
-	for i := range(names) {
-		_, ok := name2dp[names[i]]
+	for _, name := range(names) {
+		_, ok := name2dp[name]
 		if ok { t.Fatal() }
 	}
 }
@@ -173,9 +173,9 @@ func TestEnumeratePorts(t *testing.T) {
 	var ports [n]*Port
 
 	cleanup := func () {
-		for i := range(ports) {
-			if ports[i] != nil {
-				ports[i].Delete()
+		for i, port := range(ports) {
+			if port != nil {
+				port.Delete()
 			}
 
 			ports[i] = nil
@@ -193,8 +193,8 @@ func TestEnumeratePorts(t *testing.T) {
 
 	name2port, err := dp.EnumeratePorts()
 	maybeFatal(t, err)
-	for i := range(names) {
-		_, ok := name2port[names[i]]
+	for _, name := range(names) {
+		_, ok := name2port[name]
 		if !ok { t.Fatal() }
 	}
 
@@ -202,8 +202,8 @@ func TestEnumeratePorts(t *testing.T) {
 
 	name2port, err = dp.EnumeratePorts()
 	maybeFatal(t, err)
-	for i := range(names) {
-		_, ok := name2port[names[i]]
+	for _, name := range(names) {
+		_, ok := name2port[name]
 		if ok { t.Fatal() }
 	}
 }
