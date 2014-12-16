@@ -50,6 +50,7 @@ const SizeofOvsHeader = 4
 const (
 	OVS_DATAPATH_VERSION = 2
 	OVS_VPORT_VERSION = 1
+	OVS_FLOW_VERSION = 1
 )
 
 const ( // ovs_datapath_cmd
@@ -87,13 +88,63 @@ const ( // ovs_vport_attr
         OVS_VPORT_ATTR_STATS = 6
 )
 
-const ( // ovs_vport_type {
+const ( // ovs_vport_type
         OVS_VPORT_TYPE_UNSPEC = 0
         OVS_VPORT_TYPE_NETDEV = 1
         OVS_VPORT_TYPE_INTERNAL = 2
         OVS_VPORT_TYPE_GRE = 3
         OVS_VPORT_TYPE_VXLAN = 4
 )
+
+const ( // ovs_flow_cmd
+        OVS_FLOW_CMD_UNSPEC = 0
+        OVS_FLOW_CMD_NEW = 1
+        OVS_FLOW_CMD_DEL = 2
+        OVS_FLOW_CMD_GET = 3
+        OVS_FLOW_CMD_SET = 4
+)
+
+const ( // ovs_flow_attr
+        OVS_FLOW_ATTR_UNSPEC = 0
+        OVS_FLOW_ATTR_KEY = 1
+        OVS_FLOW_ATTR_ACTIONS = 2
+        OVS_FLOW_ATTR_STATS = 3
+        OVS_FLOW_ATTR_TCP_FLAGS = 4
+        OVS_FLOW_ATTR_USED = 5
+        OVS_FLOW_ATTR_CLEAR = 6
+        OVS_FLOW_ATTR_MASK = 7
+)
+
+const ( // ovs_key_attr
+        OVS_KEY_ATTR_UNSPEC = 0
+        OVS_KEY_ATTR_ENCAP = 1
+        OVS_KEY_ATTR_PRIORITY = 2
+        OVS_KEY_ATTR_IN_PORT = 3
+        OVS_KEY_ATTR_ETHERNET = 4
+        OVS_KEY_ATTR_VLAN = 5
+        OVS_KEY_ATTR_ETHERTYPE = 6
+        OVS_KEY_ATTR_IPV4 = 7
+        OVS_KEY_ATTR_IPV6 = 8
+        OVS_KEY_ATTR_TCP = 9
+        OVS_KEY_ATTR_UDP = 10
+        OVS_KEY_ATTR_ICMP = 11
+        OVS_KEY_ATTR_ICMPV6 = 12
+        OVS_KEY_ATTR_ARP = 13
+        OVS_KEY_ATTR_ND = 14
+        OVS_KEY_ATTR_SKB_MARK = 15
+        OVS_KEY_ATTR_TUNNEL = 16
+        OVS_KEY_ATTR_SCTP = 17
+        OVS_KEY_ATTR_TCP_FLAGS = 18
+)
+
+const ETH_ALEN = 6
+
+type OvsKeyEthernet struct {
+        EthSrc [ETH_ALEN]uint8
+	EthDst [ETH_ALEN]uint8
+}
+
+const SizeofOvsKeyEthernet = 12
 
 const (
 	OVS_DP_F_UNALIGNED = 1

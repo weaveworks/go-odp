@@ -316,3 +316,25 @@ func (port *Port) Delete() error {
 	port.portNo = ^uint32(0)
 	return nil
 }
+
+func (dp *Datapath) CreateFlow() (*Datapath, error) {
+	dpif := dp.dpif
+
+	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[FLOW])
+	req.PutGenlMsghdr(OVS_FLOW_CMD_NEW, OVS_FLOW_VERSION)
+	req.PutOvsHeader(dp.ifindex)
+	req.PutAttr(OVS_FLOW_ATTR_KEY, func () {
+		ek := (*OvsKeyEthernet)(req.PutStructAttr(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet))
+		ek.EthSrc = [...]uint8 { 1,2,3,4,5,6 }
+		ek.EthDst = [...]uint8 { 6,5,4,3,2,1 }
+	})
+	req.PutAttr(OVS_FLOW_ATTR_ACTIONS, func () {
+	})
+
+	_, err := dpif.sock.Request(req)
+	if err != nil {
+		return nil, err
+	}
+
+	return dp, nil
+}

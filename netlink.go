@@ -142,6 +142,13 @@ func (nlmsg *NlMsgBuilder) PutStringAttr(typ uint16, str string) {
 	nlmsg.PutAttr(typ, func () { nlmsg.putStringZ(str) })
 }
 
+func (nlmsg *NlMsgBuilder) PutStructAttr(typ uint16, size uintptr) (res unsafe.Pointer) {
+	nlmsg.PutAttr(typ, func () {
+		res = unsafe.Pointer(&nlmsg.buf[nlmsg.Grow(size)])
+	})
+	return
+}
+
 type NetlinkError struct {
 	Errno syscall.Errno
 }

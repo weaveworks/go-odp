@@ -207,3 +207,16 @@ func TestEnumeratePorts(t *testing.T) {
 		if ok { t.Fatal() }
 	}
 }
+
+func TestCreateFlow(t *testing.T) {
+	dpif, err := NewDpif()
+	maybeFatal(t, err)
+	defer checkedCloseDpif(dpif, t)
+
+	dp, err := dpif.CreateDatapath(fmt.Sprintf("test%d", rand.Intn(100000)))
+	maybeFatal(t, err)
+	defer checkedDeleteDatapath(dp, t)
+
+	_, err = dp.CreateFlow()
+	maybeFatal(t, err)
+}

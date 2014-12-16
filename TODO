@@ -1,4 +1,8 @@
-Port deletion, lookup, enumeration
+Flows: Creation, deletion, enumeration
+
+Port types
+
+Dumping datapath state
 
 Handle NLM_F_DUMP_INTR
 
