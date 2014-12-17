@@ -1,4 +1,4 @@
-Flows: Repeated deletion, enumeration
+Flows: enumeration
 
 Port types
 
@@ -6,7 +6,9 @@ ip2 style util to create, delete, dump datapath
 
 Handle NLM_F_DUMP_INTR
 
-Put enum name comments in syscall.go
+Dump flow stats
+
+Put enum name comments everywhere in syscall.go
 
 Use MSG_TRUNC on recv, and a large reusable buffer.
 

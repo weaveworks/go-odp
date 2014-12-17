@@ -224,4 +224,9 @@ func TestCreateFlow(t *testing.T) {
 	maybeFatal(t, err)
 
 	maybeFatal(t, dp.DeleteFlow(f))
+
+	err = dp.DeleteFlow(f)
+	if err != (NoSuchFlowError{}) {
+		t.Fatal()
+	}
 }

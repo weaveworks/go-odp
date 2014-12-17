@@ -32,7 +32,7 @@ func lookupFamily(sock *NetlinkSocket, name string) (uint16, error) {
 		return id, nil
 	}
 
-	if e, ok := err.(NetlinkError); ok && e.Errno == syscall.ENOENT {
+	if err == NetlinkError(syscall.ENOENT) {
 		return 0, fmt.Errorf("Generic netlink family '%s' unavailable; the Open vSwitch kernel module is probably not loaded", name)
 	}
 
@@ -143,7 +143,7 @@ func (dpif *Dpif) LookupDatapath(name string) (*Datapath, error) {
 
 	resp, err := dpif.sock.Request(req)
 	if err != nil {
-		if e, ok := err.(NetlinkError); ok && e.Errno == syscall.ENODEV {
+		if err == NetlinkError(syscall.ENODEV) {
 			// no datapath with the given name
 			return nil, nil
 		}
@@ -262,7 +262,7 @@ func (dp *Datapath) LookupPort(name string) (*Port, error) {
 
 	resp, err := dpif.sock.Request(req)
 	if err != nil {
-		if e, ok := err.(NetlinkError); ok && e.Errno == syscall.ENODEV {
+		if err == NetlinkError(syscall.ENODEV) {
 			// no port with the given name
 			return nil, nil
 		}
@@ -373,6 +373,9 @@ func (dp *Datapath) CreateFlow(f FlowSpec) (*Datapath, error) {
 	return dp, nil
 }
 
+type NoSuchFlowError struct {}
+func (NoSuchFlowError) Error() string {	return "no such flow" }
+
 func (dp *Datapath) DeleteFlow(f FlowSpec) error {
 	dpif := dp.dpif
 
@@ -382,5 +385,9 @@ func (dp *Datapath) DeleteFlow(f FlowSpec) error {
 	f.toNlAttrs(req)
 
 	_, err := dpif.sock.Request(req)
+	if err == NetlinkError(syscall.ENOENT) {
+		err = NoSuchFlowError{}
+	}
+
 	return err
 }

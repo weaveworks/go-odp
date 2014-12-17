@@ -149,12 +149,10 @@ func (nlmsg *NlMsgBuilder) PutStructAttr(typ uint16, size uintptr) (res unsafe.P
 	return
 }
 
-type NetlinkError struct {
-	Errno syscall.Errno
-}
+type NetlinkError syscall.Errno
 
 func (err NetlinkError) Error() string {
-	return fmt.Sprintf("netlink error response: %s", err.Errno.Error())
+	return fmt.Sprintf("netlink error response: %s", syscall.Errno(err))
 }
 
 type NlMsgParser struct {
@@ -232,7 +230,7 @@ func (nlmsg *NlMsgParser) checkHeader(s *NetlinkSocket, expectedSeq uint32) (*sy
 		nlerr := nlMsgerrAt(nlmsg.data, nlmsg.pos + syscall.NLMSG_HDRLEN)
 
 		if nlerr.Error != 0 {
-			return nil, NetlinkError{syscall.Errno(-nlerr.Error)}
+			return nil, NetlinkError(-nlerr.Error)
 		}
 
 		// an error code of 0 means the erorr is an ack, so
