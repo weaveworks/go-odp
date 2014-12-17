@@ -1,5 +1,8 @@
 Handle the mysterious key types the come back when enumerating flows
 
+Flow key parsers can just take the attr value byte slice.  Then no
+need for GetStruct.
+
 TODO in dpif.go
 
 TestEnumeratePorts: don't need to cleanup really, should be no ports

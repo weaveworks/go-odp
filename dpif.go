@@ -359,6 +359,33 @@ func (a FlowSpec) Equals(b FlowSpec) bool {
 	return true
 }
 
+// Packet QoS priority flow key
+
+type PriorityFlowKey uint32
+
+func NewPriorityFlowKey(prio uint32) FlowKey {
+	return PriorityFlowKey(prio)
+}
+
+func (key PriorityFlowKey) typeId() uint8 {
+	return OVS_KEY_ATTR_PRIORITY
+}
+
+func (key PriorityFlowKey) toNlAttr(msg *NlMsgBuilder) {
+	msg.PutUint32Attr(OVS_KEY_ATTR_PRIORITY, uint32(key))
+}
+
+func parsePriorityFlowKey(attrs Attrs) (FlowKey, error) {
+	prio, err := attrs.GetUint32(OVS_KEY_ATTR_PRIORITY)
+	if err != nil {
+		return nil, err
+	}
+
+	return PriorityFlowKey(prio), nil
+}
+
+// Ethernet header flow key
+
 func NewEthernetFlowKey(src [6]byte, dst [6]byte) FlowKey {
 	return OvsKeyEthernet{EthSrc: src, EthDst: dst}
 }
@@ -372,17 +399,17 @@ func (key OvsKeyEthernet) toNlAttr(msg *NlMsgBuilder) {
 	*(*OvsKeyEthernet)(p) = key
 }
 
-func parseEthernetFlowKey(attrs Attrs) (k FlowKey, err error) {
+func parseEthernetFlowKey(attrs Attrs) (FlowKey, error) {
 	p, err := attrs.GetStruct(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	k = *(*OvsKeyEthernet)(p)
-	return
+	return *(*OvsKeyEthernet)(p), nil
 }
 
 var flowKeyParsers = map[uint16](func (Attrs) (FlowKey, error)) {
+	OVS_KEY_ATTR_PRIORITY: parsePriorityFlowKey,
 	OVS_KEY_ATTR_ETHERNET: parseEthernetFlowKey,
 }
 
@@ -412,6 +439,7 @@ func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 	for typ := range(keys) {
 		parser, ok := flowKeyParsers[typ]
 		if !ok {
+			fmt.Printf("unknown flow key type %d\n", typ)
 			//err = fmt.Errorf("unknown flow key type %d", typ)
 			//return f, err
 			continue
