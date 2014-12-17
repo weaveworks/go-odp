@@ -1,4 +1,11 @@
-Flows: enumeration
+Handle the mysterious key types the come back when enumerating flows
+
+TODO in dpif.go
+
+TestEnumeratePorts: don't need to cleanup really, should be no ports
+after deleting
+
+Unify "wrong datapath ifindex" check
 
 Port types
 

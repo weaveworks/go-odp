@@ -220,7 +220,7 @@ func TestCreateFlow(t *testing.T) {
 	f := NewFlowSpec()
 	f.AddKey(NewEthernetFlowKey([...]byte { 1,2,3,4,5,6 }, [...]byte { 6,5,4,3,2,1 }))
 
-	_, err = dp.CreateFlow(f)
+	err = dp.CreateFlow(f)
 	maybeFatal(t, err)
 
 	maybeFatal(t, dp.DeleteFlow(f))
@@ -229,4 +229,53 @@ func TestCreateFlow(t *testing.T) {
 	if err != (NoSuchFlowError{}) {
 		t.Fatal()
 	}
+}
+
+func TestEnumerateFlows(t *testing.T) {
+	dpif, err := NewDpif()
+	maybeFatal(t, err)
+	defer checkedCloseDpif(dpif, t)
+
+	dp, err := dpif.CreateDatapath(fmt.Sprintf("test%d", rand.Intn(100000)))
+	maybeFatal(t, err)
+	defer checkedDeleteDatapath(dp, t)
+
+	const n = 10
+	var flows [n]FlowSpec
+
+	for i := range(flows) {
+		flow := NewFlowSpec()
+		flow.AddKey(NewEthernetFlowKey([...]byte { 1,2,3,4,5,byte(i) }, [...]byte { 6,5,4,3,2,1 }))
+		err = dp.CreateFlow(flow)
+		maybeFatal(t, err)
+		flows[i] = flow
+	}
+
+	eflows, err := dp.EnumerateFlows()
+	maybeFatal(t, err)
+
+	if len(eflows) != n { t.Fatal() }
+
+	for _, eflow := range(eflows) {
+		found := false
+
+		for _, flow := range(flows) {
+			if eflow.Equals(flow) {
+				found = true
+				break
+			}
+		}
+
+		if !found { t.Fatal() }
+	}
+
+	for _, eflow := range(eflows) {
+		err = dp.DeleteFlow(eflow)
+		maybeFatal(t, err)
+	}
+
+	eflows, err = dp.EnumerateFlows()
+	maybeFatal(t, err)
+
+	if len(eflows) != 0 { t.Fatal() }
 }

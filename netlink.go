@@ -222,7 +222,7 @@ func (nlmsg *NlMsgParser) checkHeader(s *NetlinkSocket, expectedSeq uint32) (*sy
 		// the other hand, sequence number mismatches might
 		// indicate bugs, so it is sometimes nice to see them
 		// in development.
-		fmt.Printf("netlink reply sequence number mismatch (got %d, expected %d)", h.Seq, expectedSeq)
+		fmt.Printf("netlink reply sequence number mismatch (got %d, expected %d)\n", h.Seq, expectedSeq)
 		return nil, nil
 	}
 
@@ -306,6 +306,29 @@ func (attrs Attrs) GetString(typ uint16) (string, error) {
 	}
 
 	return string(val[0:len(val) - 1]), nil
+}
+
+func (attrs Attrs) GetNestedAttrs(typ uint16) (Attrs, error) {
+	val, err := attrs.Get(typ)
+	if err != nil {
+		return nil, err
+	}
+
+	parser := NlMsgParser{data: val, pos: 0}
+	return parser.TakeAttrs()
+}
+
+func (attrs Attrs) GetStruct(typ uint16, size int) (unsafe.Pointer, error) {
+	val, err := attrs.Get(typ)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(val) != size {
+		return nil, fmt.Errorf("netlink attribute had wrong size (type %d, expected %d, got %d)", typ, size, len(val))
+	}
+
+	return unsafe.Pointer(&val[0]), nil
 }
 
 func (nlmsg *NlMsgParser) checkData(l uintptr, obj string) error {

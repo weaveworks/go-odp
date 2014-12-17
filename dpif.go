@@ -89,7 +89,7 @@ type datapathInfo struct {
 	name string
 }
 
-func (dpif *Dpif) makeDatapathInfo(msg *NlMsgParser) (res datapathInfo, err error) {
+func (dpif *Dpif) parseDatapathInfo(msg *NlMsgParser) (res datapathInfo, err error) {
 	_, err = msg.ExpectNlMsghdr(dpif.familyIds[DATAPATH])
 	if err != nil { return }
 
@@ -127,7 +127,7 @@ func (dpif *Dpif) CreateDatapath(name string) (*Datapath, error) {
 		return nil, err
 	}
 
-	dpi, err := dpif.makeDatapathInfo(resp)
+	dpi, err := dpif.parseDatapathInfo(resp)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (dpif *Dpif) LookupDatapath(name string) (*Datapath, error) {
 		return nil, err
 	}
 
-	dpi, err := dpif.makeDatapathInfo(resp)
+	dpi, err := dpif.parseDatapathInfo(resp)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func (dpif *Dpif) EnumerateDatapaths() (map[string]*Datapath, error) {
 	req.PutOvsHeader(0)
 
 	consumer := func (resp *NlMsgParser) error {
-		dpi, err := dpif.makeDatapathInfo(resp)
+		dpi, err := dpif.parseDatapathInfo(resp)
 		if err != nil {	return err }
 		res[dpi.name] = &Datapath{dpif: dpif, ifindex: dpi.ifindex}
 		return nil
@@ -199,7 +199,7 @@ type portInfo struct {
 	name string
 }
 
-func (dp *Datapath) makePortInfo(msg *NlMsgParser) (res portInfo, err error) {
+func (dp *Datapath) parsePortInfo(msg *NlMsgParser) (res portInfo, err error) {
 	_, err = msg.ExpectNlMsghdr(dp.dpif.familyIds[VPORT])
 	if err != nil { return }
 
@@ -244,7 +244,7 @@ func (dp *Datapath) CreatePort(name string) (*Port, error) {
 		return nil, err
 	}
 
-	pi, err := dp.makePortInfo(resp)
+	pi, err := dp.parsePortInfo(resp)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +270,7 @@ func (dp *Datapath) LookupPort(name string) (*Port, error) {
 		return nil, err
 	}
 
-	pi, err := dp.makePortInfo(resp)
+	pi, err := dp.parsePortInfo(resp)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +287,7 @@ func (dp *Datapath) EnumeratePorts() (map[string]*Port, error) {
 	req.PutOvsHeader(dp.ifindex)
 
 	consumer := func (resp *NlMsgParser) error {
-		pi, err := dp.makePortInfo(resp)
+		pi, err := dp.parsePortInfo(resp)
 		if err != nil {	return err }
 		res[pi.name] = &Port{datapath: dp, portNo: pi.portNo}
 		return nil
@@ -318,7 +318,7 @@ func (port *Port) Delete() error {
 }
 
 type FlowKey interface {
-	attrId() uint8
+	typeId() uint8
 	toNlAttr(*NlMsgBuilder)
 }
 
@@ -331,33 +331,104 @@ func NewFlowSpec() FlowSpec {
 }
 
 func (f FlowSpec) AddKey(k FlowKey) {
-	f.keys[k.attrId()] = k
+	// TODO check for collisions
+	f.keys[k.typeId()] = k
 }
 
-func (f FlowSpec) toNlAttrs(req *NlMsgBuilder) {
-	req.PutAttr(OVS_FLOW_ATTR_KEY, func () {
+func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
+	msg.PutAttr(OVS_FLOW_ATTR_KEY, func () {
 		for _, k := range(f.keys) {
-			k.toNlAttr(req)
+			k.toNlAttr(msg)
 		}
 	})
-	req.PutAttr(OVS_FLOW_ATTR_ACTIONS, func () {
+	msg.PutAttr(OVS_FLOW_ATTR_ACTIONS, func () {
 	})
+}
+
+func (a FlowSpec) Equals(b FlowSpec) bool {
+	for id, ak := range(a.keys) {
+		bk, ok := b.keys[id]
+		if !ok || ak != bk { return false }
+	}
+
+	for id := range(b.keys) {
+		_, ok := a.keys[id]
+		if !ok { return false }
+	}
+
+	return true
 }
 
 func NewEthernetFlowKey(src [6]byte, dst [6]byte) FlowKey {
 	return OvsKeyEthernet{EthSrc: src, EthDst: dst}
 }
 
-func (key OvsKeyEthernet) attrId() uint8 {
+func (key OvsKeyEthernet) typeId() uint8 {
 	return OVS_KEY_ATTR_ETHERNET
 }
 
-func (key OvsKeyEthernet) toNlAttr(req *NlMsgBuilder) {
-	p := (*OvsKeyEthernet)(req.PutStructAttr(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet))
-	*p = key
+func (key OvsKeyEthernet) toNlAttr(msg *NlMsgBuilder) {
+	p := msg.PutStructAttr(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet)
+	*(*OvsKeyEthernet)(p) = key
 }
 
-func (dp *Datapath) CreateFlow(f FlowSpec) (*Datapath, error) {
+func parseEthernetFlowKey(attrs Attrs) (k FlowKey, err error) {
+	p, err := attrs.GetStruct(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet)
+	if err != nil {
+		return
+	}
+
+	k = *(*OvsKeyEthernet)(p)
+	return
+}
+
+var flowKeyParsers = map[uint16](func (Attrs) (FlowKey, error)) {
+	OVS_KEY_ATTR_ETHERNET: parseEthernetFlowKey,
+}
+
+func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
+	f := NewFlowSpec()
+
+	_, err := msg.ExpectNlMsghdr(dp.dpif.familyIds[FLOW])
+	if err != nil { return f, err }
+
+	_, err = msg.ExpectGenlMsghdr(OVS_FLOW_CMD_NEW)
+	if err != nil { return f, err }
+
+	ovshdr, err := msg.TakeOvsHeader()
+	if err != nil { return f, err }
+
+	if ovshdr.DpIfIndex != dp.ifindex {
+		err = fmt.Errorf("wrong datapath ifindex in response (got %d, expected %d)", ovshdr.DpIfIndex, dp.ifindex)
+		return f, err
+	}
+
+	attrs, err := msg.TakeAttrs()
+	if err != nil { return f, err }
+
+	keys, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_KEY)
+	if err != nil { return f, err}
+
+	for typ := range(keys) {
+		parser, ok := flowKeyParsers[typ]
+		if !ok {
+			//err = fmt.Errorf("unknown flow key type %d", typ)
+			//return f, err
+			continue
+		}
+
+		k, err := parser(keys)
+		if err != nil {
+			return f, err
+		}
+
+		f.AddKey(k)
+	}
+
+	return f, nil
+}
+
+func (dp *Datapath) CreateFlow(f FlowSpec) error {
 	dpif := dp.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[FLOW])
@@ -367,10 +438,10 @@ func (dp *Datapath) CreateFlow(f FlowSpec) (*Datapath, error) {
 
 	_, err := dpif.sock.Request(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return dp, nil
+	return nil
 }
 
 type NoSuchFlowError struct {}
@@ -390,4 +461,27 @@ func (dp *Datapath) DeleteFlow(f FlowSpec) error {
 	}
 
 	return err
+}
+
+func (dp *Datapath) EnumerateFlows() ([]FlowSpec, error) {
+	dpif := dp.dpif
+	res := make([]FlowSpec, 0)
+
+	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[FLOW])
+	req.PutGenlMsghdr(OVS_FLOW_CMD_GET, OVS_FLOW_VERSION)
+	req.PutOvsHeader(dp.ifindex)
+
+	consumer := func (resp *NlMsgParser) error {
+		f, err := dp.parseFlowSpec(resp)
+		if err != nil {	return err }
+		res = append(res, f)
+		return nil
+	}
+
+	err := dpif.sock.RequestMulti(req, consumer)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
 }
