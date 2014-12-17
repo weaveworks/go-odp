@@ -317,19 +317,53 @@ func (port *Port) Delete() error {
 	return nil
 }
 
-func (dp *Datapath) CreateFlow() (*Datapath, error) {
+type FlowKey interface {
+	attrId() uint8
+	toNlAttr(*NlMsgBuilder)
+}
+
+type FlowSpec struct {
+	keys map[uint8]FlowKey
+}
+
+func NewFlowSpec() FlowSpec {
+	return FlowSpec{keys: make(map[uint8]FlowKey)}
+}
+
+func (f FlowSpec) AddKey(k FlowKey) {
+	f.keys[k.attrId()] = k
+}
+
+func (f FlowSpec) toNlAttrs(req *NlMsgBuilder) {
+	req.PutAttr(OVS_FLOW_ATTR_KEY, func () {
+		for _, k := range(f.keys) {
+			k.toNlAttr(req)
+		}
+	})
+	req.PutAttr(OVS_FLOW_ATTR_ACTIONS, func () {
+	})
+}
+
+func NewEthernetFlowKey(src [6]byte, dst [6]byte) FlowKey {
+	return OvsKeyEthernet{EthSrc: src, EthDst: dst}
+}
+
+func (key OvsKeyEthernet) attrId() uint8 {
+	return OVS_KEY_ATTR_ETHERNET
+}
+
+func (key OvsKeyEthernet) toNlAttr(req *NlMsgBuilder) {
+	p := (*OvsKeyEthernet)(req.PutStructAttr(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet))
+	*p = key
+}
+
+func (dp *Datapath) CreateFlow(f FlowSpec) (*Datapath, error) {
 	dpif := dp.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[FLOW])
 	req.PutGenlMsghdr(OVS_FLOW_CMD_NEW, OVS_FLOW_VERSION)
 	req.PutOvsHeader(dp.ifindex)
-	req.PutAttr(OVS_FLOW_ATTR_KEY, func () {
-		ek := (*OvsKeyEthernet)(req.PutStructAttr(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet))
-		ek.EthSrc = [...]uint8 { 1,2,3,4,5,6 }
-		ek.EthDst = [...]uint8 { 6,5,4,3,2,1 }
-	})
-	req.PutAttr(OVS_FLOW_ATTR_ACTIONS, func () {
-	})
+	f.toNlAttrs(req)
 
 	_, err := dpif.sock.Request(req)
 	if err != nil {
@@ -337,4 +371,16 @@ func (dp *Datapath) CreateFlow() (*Datapath, error) {
 	}
 
 	return dp, nil
+}
+
+func (dp *Datapath) DeleteFlow(f FlowSpec) error {
+	dpif := dp.dpif
+
+	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[FLOW])
+	req.PutGenlMsghdr(OVS_FLOW_CMD_DEL, OVS_FLOW_VERSION)
+	req.PutOvsHeader(dp.ifindex)
+	f.toNlAttrs(req)
+
+	_, err := dpif.sock.Request(req)
+	return err
 }

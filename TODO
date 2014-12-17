@@ -1,8 +1,8 @@
-Flows: Creation, deletion, enumeration
+Flows: Repeated deletion, enumeration
 
 Port types
 
-Dumping datapath state
+ip2 style util to create, delete, dump datapath
 
 Handle NLM_F_DUMP_INTR
 

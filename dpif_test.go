@@ -217,6 +217,11 @@ func TestCreateFlow(t *testing.T) {
 	maybeFatal(t, err)
 	defer checkedDeleteDatapath(dp, t)
 
-	_, err = dp.CreateFlow()
+	f := NewFlowSpec()
+	f.AddKey(NewEthernetFlowKey([...]byte { 1,2,3,4,5,6 }, [...]byte { 6,5,4,3,2,1 }))
+
+	_, err = dp.CreateFlow(f)
 	maybeFatal(t, err)
+
+	maybeFatal(t, dp.DeleteFlow(f))
 }

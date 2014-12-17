@@ -140,8 +140,8 @@ const ( // ovs_key_attr
 const ETH_ALEN = 6
 
 type OvsKeyEthernet struct {
-        EthSrc [ETH_ALEN]uint8
-	EthDst [ETH_ALEN]uint8
+	EthSrc [ETH_ALEN]byte
+	EthDst [ETH_ALEN]byte
 }
 
 const SizeofOvsKeyEthernet = 12
