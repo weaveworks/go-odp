@@ -104,6 +104,12 @@ func expand(buf []byte, l int) []byte {
 	return new
 }
 
+func (nlmsg *NlMsgBuilder) Align(a int) {
+	l := align(len(nlmsg.buf), a)
+	if l > cap(nlmsg.buf) { nlmsg.buf = expand(nlmsg.buf, l) }
+	nlmsg.buf = nlmsg.buf[:l]
+}
+
 func (nlmsg *NlMsgBuilder) Grow(size uintptr) int {
 	pos := len(nlmsg.buf)
 	l := pos + int(size)
@@ -138,6 +144,18 @@ func (nlmsg *NlMsgBuilder) PutAttr(typ uint16, gen func()) {
 	nla := nlAttrAt(nlmsg.buf, pos)
 	nla.Type = typ
 	nla.Len = uint16(len(nlmsg.buf) - pos)
+}
+
+func (nlmsg *NlMsgBuilder) PutNestedAttrs(typ uint16, gen func()) {
+	nlmsg.PutAttr(typ, func() {
+		gen()
+
+		// The kernel nlattr parser expects the alignment
+		// padding at the end of a nested attributes value to
+		// be included in the length of the enclosing
+		// attribute
+		nlmsg.Align(syscall.NLA_ALIGNTO)
+	})
 }
 
 func (nlmsg *NlMsgBuilder) PutUint32Attr(typ uint16, val uint32) {

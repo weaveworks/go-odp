@@ -234,11 +234,11 @@ func TestCreateFlow(t *testing.T) {
 
 func TestEnumerateFlows(t *testing.T) {
 	dpif, err := NewDpif()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
 
 	dp, err := dpif.CreateDatapath(fmt.Sprintf("test%d", rand.Intn(100000)))
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedDeleteDatapath(dp, t)
 
 	const n = 10
@@ -248,12 +248,12 @@ func TestEnumerateFlows(t *testing.T) {
 		flow := NewFlowSpec()
 		flow.AddKey(NewEthernetFlowKey([...]byte { 1,2,3,4,5,byte(i) }, [...]byte { 6,5,4,3,2,1 }))
 		err = dp.CreateFlow(flow)
-		maybeFatal(t, err)
+		if err != nil { t.Fatal(err) }
 		flows[i] = flow
 	}
 
 	eflows, err := dp.EnumerateFlows()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 
 	if len(eflows) != n { t.Fatal() }
 
@@ -272,11 +272,11 @@ func TestEnumerateFlows(t *testing.T) {
 
 	for _, eflow := range(eflows) {
 		err = dp.DeleteFlow(eflow)
-		maybeFatal(t, err)
+		if err != nil { t.Fatal(err) }
 	}
 
 	eflows, err = dp.EnumerateFlows()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 
 	if len(eflows) != 0 { t.Fatal() }
 }
