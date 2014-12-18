@@ -318,16 +318,19 @@ func (port *Port) Delete() error {
 }
 
 type FlowKey interface {
-	typeId() uint8
-	toNlAttr(*NlMsgBuilder)
+	typeId() uint16
+	putKeyNlAttr(*NlMsgBuilder)
+	putMaskNlAttr(*NlMsgBuilder)
+	ignored() bool
+	Equals(FlowKey) bool
 }
 
 type FlowSpec struct {
-	keys map[uint8]FlowKey
+	keys map[uint16]FlowKey
 }
 
 func NewFlowSpec() FlowSpec {
-	return FlowSpec{keys: make(map[uint8]FlowKey)}
+	return FlowSpec{keys: make(map[uint16]FlowKey)}
 }
 
 func (f FlowSpec) AddKey(k FlowKey) {
@@ -338,9 +341,16 @@ func (f FlowSpec) AddKey(k FlowKey) {
 func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
 	msg.PutAttr(OVS_FLOW_ATTR_KEY, func () {
 		for _, k := range(f.keys) {
-			k.toNlAttr(msg)
+			k.putKeyNlAttr(msg)
 		}
 	})
+	msg.PutAttr(OVS_FLOW_ATTR_MASK, func () {
+		for _, k := range(f.keys) {
+			k.putMaskNlAttr(msg)
+		}
+	})
+
+	// ACTIONS is required
 	msg.PutAttr(OVS_FLOW_ATTR_ACTIONS, func () {
 	})
 }
@@ -348,67 +358,117 @@ func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
 func (a FlowSpec) Equals(b FlowSpec) bool {
 	for id, ak := range(a.keys) {
 		bk, ok := b.keys[id]
-		if !ok || ak != bk { return false }
+		if ok {
+			if !ak.Equals(bk) { return false }
+		} else {
+			if !ak.ignored() { return false }
+		}
 	}
 
-	for id := range(b.keys) {
+	for id, bk := range(b.keys) {
 		_, ok := a.keys[id]
-		if !ok { return false }
+		if !ok && !bk.ignored() { return false }
 	}
 
 	return true
 }
 
-// Packet QoS priority flow key
-
-type PriorityFlowKey uint32
-
-func NewPriorityFlowKey(prio uint32) FlowKey {
-	return PriorityFlowKey(prio)
+type BlobFlowKey struct {
+	typ uint16
+	keyMask []byte
 }
 
-func (key PriorityFlowKey) typeId() uint8 {
-	return OVS_KEY_ATTR_PRIORITY
+func NewBlobFlowKey(typ uint16, size int) (BlobFlowKey, unsafe.Pointer) {
+	km := make([]byte, size * 2)
+	mask := km[size:]
+	for i := range(mask) { mask[i] = 0xff }
+	return BlobFlowKey{typ: typ, keyMask: km}, unsafe.Pointer(&km[0])
 }
 
-func (key PriorityFlowKey) toNlAttr(msg *NlMsgBuilder) {
-	msg.PutUint32Attr(OVS_KEY_ATTR_PRIORITY, uint32(key))
+func (key BlobFlowKey) typeId() uint16 {
+	return key.typ
 }
 
-func parsePriorityFlowKey(attrs Attrs) (FlowKey, error) {
-	prio, err := attrs.GetUint32(OVS_KEY_ATTR_PRIORITY)
-	if err != nil {
-		return nil, err
+func (key BlobFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
+	msg.PutSliceAttr(key.typ, key.keyMask[:len(key.keyMask) / 2])
+}
+
+func (key BlobFlowKey) putMaskNlAttr(msg *NlMsgBuilder) {
+	// TODO: if mask is exact, don't bother
+	msg.PutSliceAttr(key.typ, key.keyMask[len(key.keyMask) / 2:])
+}
+
+func (key BlobFlowKey) ignored() bool {
+	for _, b := range(key.keyMask[len(key.keyMask) / 2:]) {
+		if b != 0 { return false }
 	}
 
-	return PriorityFlowKey(prio), nil
+	return true
+}
+
+func (a BlobFlowKey) Equals(gb FlowKey) bool {
+	b, ok := gb.(BlobFlowKey)
+	if !ok { return false }
+
+	size := len(a.keyMask)
+	if len(b.keyMask) != size { return false }
+	size /= 2
+
+	amask := a.keyMask[size:]
+	bmask := b.keyMask[size:]
+	for i := range(amask) {
+		if amask[i] != bmask[i] || ((a.keyMask[i] ^ b.keyMask[i]) & amask[i]) != 0 { return false }
+	}
+
+	return true
+}
+
+func parseBlobFlowKey(typ uint16, key []byte, mask []byte, size int) (BlobFlowKey, error) {
+	res := BlobFlowKey{typ:typ}
+
+	if len(key) != size {
+		return res, fmt.Errorf("flow key type %d has wrong length (expected %d bytes, got %d)", typ, size, len(key))
+	}
+
+	res.keyMask = make([]byte, size * 2)
+	copy(res.keyMask, key)
+
+	if mask != nil {
+		if len(mask) != size {
+			return res, fmt.Errorf("flow key mask type %d has wrong length (expected %d bytes, got %d)", typ, size, len(mask))
+		}
+
+		copy(res.keyMask[size:], mask)
+	} else {
+		// no mask recieved, assume an exact match
+		mask := res.keyMask[size:]
+		for i := range(mask) { mask[i] = 0xff }
+	}
+
+	return res, nil
+}
+
+// Packet QoS priority flow key
+
+func parsePriorityFlowKey(key []byte, mask []byte) (FlowKey, error) {
+	return parseBlobFlowKey(OVS_KEY_ATTR_PRIORITY, key, mask, 4)
 }
 
 // Ethernet header flow key
 
-func NewEthernetFlowKey(src [6]byte, dst [6]byte) FlowKey {
-	return OvsKeyEthernet{EthSrc: src, EthDst: dst}
+func NewEthernetFlowKey(src [ETH_ALEN]byte, dst [ETH_ALEN]byte) FlowKey {
+	fk, p := NewBlobFlowKey(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet)
+	ek := (*OvsKeyEthernet)(p)
+	ek.EthSrc = src
+	ek.EthDst = dst
+	return fk
 }
 
-func (key OvsKeyEthernet) typeId() uint8 {
-	return OVS_KEY_ATTR_ETHERNET
+func parseEthernetFlowKey(key []byte, mask []byte) (FlowKey, error) {
+	return parseBlobFlowKey(OVS_KEY_ATTR_ETHERNET, key, mask, SizeofOvsKeyEthernet)
 }
 
-func (key OvsKeyEthernet) toNlAttr(msg *NlMsgBuilder) {
-	p := msg.PutStructAttr(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet)
-	*(*OvsKeyEthernet)(p) = key
-}
-
-func parseEthernetFlowKey(attrs Attrs) (FlowKey, error) {
-	p, err := attrs.GetStruct(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet)
-	if err != nil {
-		return nil, err
-	}
-
-	return *(*OvsKeyEthernet)(p), nil
-}
-
-var flowKeyParsers = map[uint16](func (Attrs) (FlowKey, error)) {
+var flowKeyParsers = map[uint16](func ([]byte, []byte) (FlowKey, error)) {
 	OVS_KEY_ATTR_PRIORITY: parsePriorityFlowKey,
 	OVS_KEY_ATTR_ETHERNET: parseEthernetFlowKey,
 }
@@ -436,7 +496,13 @@ func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 	keys, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_KEY)
 	if err != nil { return f, err}
 
-	for typ := range(keys) {
+	// TODO: mask is optional
+	masks, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_MASK)
+	if err != nil { return f, err}
+
+	for typ, key := range(keys) {
+		mask, _ := masks[typ]
+
 		parser, ok := flowKeyParsers[typ]
 		if !ok {
 			fmt.Printf("unknown flow key type %d\n", typ)
@@ -445,12 +511,17 @@ func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 			continue
 		}
 
-		k, err := parser(keys)
+		f.keys[typ], err = parser(key, mask)
 		if err != nil {
 			return f, err
 		}
+	}
 
-		f.AddKey(k)
+	for typ, mask := range(masks) {
+		_, ok := keys[typ]
+		if !ok {
+			fmt.Printf("flow key mask without flow key for type %d (%v)\n", typ, mask)
+		}
 	}
 
 	return f, nil

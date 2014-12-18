@@ -210,20 +210,21 @@ func TestEnumeratePorts(t *testing.T) {
 
 func TestCreateFlow(t *testing.T) {
 	dpif, err := NewDpif()
-	maybeFatal(t, err)
+	if err != nil {	t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
 
 	dp, err := dpif.CreateDatapath(fmt.Sprintf("test%d", rand.Intn(100000)))
-	maybeFatal(t, err)
+	if err != nil {	t.Fatal(err) }
 	defer checkedDeleteDatapath(dp, t)
 
 	f := NewFlowSpec()
 	f.AddKey(NewEthernetFlowKey([...]byte { 1,2,3,4,5,6 }, [...]byte { 6,5,4,3,2,1 }))
 
 	err = dp.CreateFlow(f)
-	maybeFatal(t, err)
+	if err != nil {	t.Fatal(err) }
 
-	maybeFatal(t, dp.DeleteFlow(f))
+	err = dp.DeleteFlow(f)
+	if err != nil {	t.Fatal(err) }
 
 	err = dp.DeleteFlow(f)
 	if err != (NoSuchFlowError{}) {
@@ -266,7 +267,7 @@ func TestEnumerateFlows(t *testing.T) {
 			}
 		}
 
-		if !found { t.Fatal() }
+		if !found { t.Fatal(eflow) }
 	}
 
 	for _, eflow := range(eflows) {
