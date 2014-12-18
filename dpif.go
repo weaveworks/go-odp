@@ -488,10 +488,17 @@ func parseEthertypeFlowKey(key []byte, mask []byte) (FlowKey, error) {
 	return parseBlobFlowKey(OVS_KEY_ATTR_ETHERTYPE, key, mask, 2)
 }
 
+// SKB mark flow key "generic packet mark"
+
+func parseSkbMarkFlowKey(key []byte, mask []byte) (FlowKey, error) {
+	return parseBlobFlowKey(OVS_KEY_ATTR_SKB_MARK, key, mask, 4)
+}
+
 var flowKeyParsers = map[uint16](func ([]byte, []byte) (FlowKey, error)) {
 	OVS_KEY_ATTR_PRIORITY: parsePriorityFlowKey,
 	OVS_KEY_ATTR_ETHERNET: parseEthernetFlowKey,
 	OVS_KEY_ATTR_ETHERTYPE: parseEthertypeFlowKey,
+	OVS_KEY_ATTR_SKB_MARK: parseSkbMarkFlowKey,
 }
 
 func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
@@ -526,7 +533,7 @@ func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 
 		parser, ok := flowKeyParsers[typ]
 		if !ok {
-			fmt.Printf("unknown flow key type %d\n", typ)
+			fmt.Printf("unknown flow key type %d (key %v)\n", typ, key)
 			//err = fmt.Errorf("unknown flow key type %d", typ)
 			//return f, err
 			continue
@@ -544,7 +551,7 @@ func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 			// flow key mask without a flow key value
 			parser, ok := flowKeyParsers[typ]
 			if !ok {
-				fmt.Printf("unknown flow key type %d\n", typ)
+				fmt.Printf("unknown flow key type %d (mask %v)\n", typ, mask)
 				//err = fmt.Errorf("unknown flow key type %d", typ)
 				//return f, err
 				continue
