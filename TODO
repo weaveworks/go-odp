@@ -1,8 +1,5 @@
 TODOs in dpif.go
 
-TestEnumeratePorts: don't need to cleanup really, should be no ports
-after deleting
-
 Unify "wrong datapath ifindex" check
 
 Port types

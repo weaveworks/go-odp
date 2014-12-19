@@ -171,18 +171,6 @@ func TestEnumeratePorts(t *testing.T) {
 	var names [n]string
 	var ports [n]*Port
 
-	cleanup := func () {
-		for i, port := range(ports) {
-			if port != nil {
-				port.Delete()
-			}
-
-			ports[i] = nil
-		}
-	}
-
-	defer cleanup()
-
 	for i := range(names) {
 		names[i] = fmt.Sprintf("test%d", rand.Intn(100000))
 		port, err := dp.CreatePort(names[i])
@@ -197,7 +185,13 @@ func TestEnumeratePorts(t *testing.T) {
 		if !ok { t.Fatal() }
 	}
 
-	cleanup()
+	for i, port := range(ports) {
+		if port != nil {
+			port.Delete()
+		}
+
+		ports[i] = nil
+	}
 
 	name2port, err = dp.EnumeratePorts()
 	if err != nil { t.Fatal(err) }
