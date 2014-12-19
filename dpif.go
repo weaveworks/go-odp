@@ -384,10 +384,7 @@ func parseFlowKeys(keys Attrs, masks Attrs, parsers FlowKeyParsers) (res FlowKey
 
 		parser, ok := parsers[typ]
 		if !ok {
-			fmt.Printf("unknown flow key type %d (key %v)\n", typ, key)
-			//err = fmt.Errorf("unknown flow key type %d", typ)
-			//return nil, err
-			continue
+			return nil, fmt.Errorf("unknown flow key type %d (value %v)", typ, key)
 		}
 
 		res[typ], err = parser(key, mask)
@@ -399,13 +396,10 @@ func parseFlowKeys(keys Attrs, masks Attrs, parsers FlowKeyParsers) (res FlowKey
 	for typ, mask := range(masks) {
 		_, ok := keys[typ]
 		if !ok {
-			// flow key mask without a flow key value
+			// flow key mask without a corresponding flow key value
 			parser, ok := parsers[typ]
 			if !ok {
-				fmt.Printf("unknown flow key type %d (mask %v)\n", typ, mask)
-				//err = fmt.Errorf("unknown flow key type %d", typ)
-				//return nil, err
-				continue
+				return nil, fmt.Errorf("unknown flow key type %d (mask %v)", typ, mask)
 			}
 
 			res[typ], err = parser(nil, mask)
