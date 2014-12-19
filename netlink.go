@@ -290,17 +290,17 @@ func (nlmsg *NlMsgParser) ExpectNlMsghdr(typ uint16) (*syscall.NlMsghdr, error) 
 
 type Attrs map[uint16][]byte
 
-func (attrs Attrs) Get(typ uint16) ([]byte, error) {
+func (attrs Attrs) Get(typ uint16, optional bool) ([]byte, error) {
 	val, ok := attrs[typ]
-	if !ok {
-		return nil, fmt.Errorf("missing attribute %d", typ)
+	if !ok && !optional {
+		return nil, fmt.Errorf("missing netlink attribute %d", typ)
 	}
 
 	return val, nil
 }
 
 func (attrs Attrs) GetUint16(typ uint16) (uint16, error) {
-	val, err := attrs.Get(typ)
+	val, err := attrs.Get(typ, false)
 	if err != nil {
 		return 0, err
 	}
@@ -313,7 +313,7 @@ func (attrs Attrs) GetUint16(typ uint16) (uint16, error) {
 }
 
 func (attrs Attrs) GetUint32(typ uint16) (uint32, error) {
-	val, err := attrs.Get(typ)
+	val, err := attrs.Get(typ, false)
 	if err != nil {
 		return 0, err
 	}
@@ -326,7 +326,7 @@ func (attrs Attrs) GetUint32(typ uint16) (uint32, error) {
 }
 
 func (attrs Attrs) GetString(typ uint16) (string, error) {
-	val, err := attrs.Get(typ)
+	val, err := attrs.Get(typ, false)
 	if err != nil {
 		return "", err
 	}
@@ -347,26 +347,13 @@ func ParseNestedAttrs(data []byte) (Attrs, error) {
 	return parser.TakeAttrs()
 }
 
-func (attrs Attrs) GetNestedAttrs(typ uint16) (Attrs, error) {
-	val, err := attrs.Get(typ)
-	if err != nil {
+func (attrs Attrs) GetNestedAttrs(typ uint16, optional bool) (Attrs, error) {
+	val, err := attrs.Get(typ, optional)
+	if val == nil {
 		return nil, err
 	}
 
 	return ParseNestedAttrs(val)
-}
-
-func (attrs Attrs) GetStruct(typ uint16, size int) (unsafe.Pointer, error) {
-	val, err := attrs.Get(typ)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(val) != size {
-		return nil, fmt.Errorf("netlink attribute had wrong size (type %d, expected %d, got %d)", typ, size, len(val))
-	}
-
-	return unsafe.Pointer(&val[0]), nil
 }
 
 func (nlmsg *NlMsgParser) checkData(l uintptr, obj string) error {

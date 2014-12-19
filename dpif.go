@@ -327,10 +327,6 @@ type FlowKey interface {
 
 type FlowKeys map[uint16]FlowKey
 
-func NewFlowKeys() FlowKeys {
-	return make(FlowKeys)
-}
-
 func (keys FlowKeys) ignored() bool {
 	for _, k := range(keys) {
 		if !k.ignored() { return false }
@@ -377,7 +373,7 @@ func (keys FlowKeys) toMaskNlAttrs(msg *NlMsgBuilder, typ uint16) {
 type FlowKeyParsers map[uint16](func ([]byte, []byte) (FlowKey, error))
 
 func parseFlowKeys(keys Attrs, masks Attrs, parsers FlowKeyParsers) (res FlowKeys, err error) {
-	res = NewFlowKeys()
+	res = make(FlowKeys)
 
 	for typ, key := range(keys) {
 		mask, _ := masks[typ]
@@ -417,7 +413,7 @@ type FlowSpec struct {
 }
 
 func NewFlowSpec() FlowSpec {
-	return FlowSpec{FlowKeys: NewFlowKeys()}
+	return FlowSpec{FlowKeys: make(FlowKeys)}
 }
 
 func (f FlowSpec) AddKey(k FlowKey) {
@@ -654,12 +650,12 @@ func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 	attrs, err := msg.TakeAttrs()
 	if err != nil { return f, err }
 
-	keys, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_KEY)
+	keys, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_KEY, false)
 	if err != nil { return f, err}
 
-	// TODO: mask is optional
-	masks, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_MASK)
+	masks, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_MASK, true)
 	if err != nil { return f, err}
+	if masks == nil { masks = make(Attrs) }
 
 	f.FlowKeys, err = parseFlowKeys(keys, masks, flowKeyParsers)
 	if err != nil { return f, err }
