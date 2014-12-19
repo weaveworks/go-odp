@@ -325,39 +325,23 @@ type FlowKey interface {
 	Equals(FlowKey) bool
 }
 
-type FlowSpec struct {
-	keys map[uint16]FlowKey
+type FlowKeys map[uint16]FlowKey
+
+func NewFlowKeys() FlowKeys {
+	return make(FlowKeys)
 }
 
-func NewFlowSpec() FlowSpec {
-	return FlowSpec{keys: make(map[uint16]FlowKey)}
+func (keys FlowKeys) ignored() bool {
+	for _, k := range(keys) {
+		if !k.ignored() { return false }
+	}
+
+	return true
 }
 
-func (f FlowSpec) AddKey(k FlowKey) {
-	// TODO check for collisions
-	f.keys[k.typeId()] = k
-}
-
-func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
-	msg.PutNestedAttrs(OVS_FLOW_ATTR_KEY, func () {
-		for _, k := range(f.keys) {
-			if !k.ignored() { k.putKeyNlAttr(msg) }
-		}
-	})
-	msg.PutNestedAttrs(OVS_FLOW_ATTR_MASK, func () {
-		for _, k := range(f.keys) {
-			if !k.ignored() { k.putMaskNlAttr(msg) }
-		}
-	})
-
-	// ACTIONS is required
-	msg.PutNestedAttrs(OVS_FLOW_ATTR_ACTIONS, func () {
-	})
-}
-
-func (a FlowSpec) Equals(b FlowSpec) bool {
-	for id, ak := range(a.keys) {
-		bk, ok := b.keys[id]
+func (a FlowKeys) Equals(b FlowKeys) bool {
+	for id, ak := range(a) {
+		bk, ok := b[id]
 		if ok {
 			if !ak.Equals(bk) { return false }
 		} else {
@@ -365,12 +349,99 @@ func (a FlowSpec) Equals(b FlowSpec) bool {
 		}
 	}
 
-	for id, bk := range(b.keys) {
-		_, ok := a.keys[id]
+	for id, bk := range(b) {
+		_, ok := a[id]
 		if !ok && !bk.ignored() { return false }
 	}
 
 	return true
+}
+
+func (keys FlowKeys) toKeyNlAttrs(msg *NlMsgBuilder, typ uint16) {
+	msg.PutNestedAttrs(typ, func () {
+		for _, k := range(keys) {
+			if !k.ignored() { k.putKeyNlAttr(msg) }
+		}
+	})
+}
+
+func (keys FlowKeys) toMaskNlAttrs(msg *NlMsgBuilder, typ uint16) {
+	msg.PutNestedAttrs(typ, func () {
+		for _, k := range(keys) {
+			if !k.ignored() { k.putMaskNlAttr(msg) }
+		}
+	})
+}
+
+// Maps an NL attribute type to the corresponding FlowKey parsing function
+type FlowKeyParsers map[uint16](func ([]byte, []byte) (FlowKey, error))
+
+func parseFlowKeys(keys Attrs, masks Attrs, parsers FlowKeyParsers) (res FlowKeys, err error) {
+	res = NewFlowKeys()
+
+	for typ, key := range(keys) {
+		mask, _ := masks[typ]
+
+		parser, ok := parsers[typ]
+		if !ok {
+			fmt.Printf("unknown flow key type %d (key %v)\n", typ, key)
+			//err = fmt.Errorf("unknown flow key type %d", typ)
+			//return nil, err
+			continue
+		}
+
+		res[typ], err = parser(key, mask)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	for typ, mask := range(masks) {
+		_, ok := keys[typ]
+		if !ok {
+			// flow key mask without a flow key value
+			parser, ok := parsers[typ]
+			if !ok {
+				fmt.Printf("unknown flow key type %d (mask %v)\n", typ, mask)
+				//err = fmt.Errorf("unknown flow key type %d", typ)
+				//return nil, err
+				continue
+			}
+
+			res[typ], err = parser(nil, mask)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return res, nil
+}
+
+type FlowSpec struct {
+	FlowKeys
+}
+
+func NewFlowSpec() FlowSpec {
+	return FlowSpec{FlowKeys: NewFlowKeys()}
+}
+
+func (f FlowSpec) AddKey(k FlowKey) {
+	// TODO check for collisions
+	f.FlowKeys[k.typeId()] = k
+}
+
+func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
+	f.FlowKeys.toKeyNlAttrs(msg, OVS_FLOW_ATTR_KEY)
+	f.FlowKeys.toMaskNlAttrs(msg, OVS_FLOW_ATTR_MASK)
+
+	// ACTIONS is required
+	msg.PutNestedAttrs(OVS_FLOW_ATTR_ACTIONS, func () {
+	})
+}
+
+func (a FlowSpec) Equals(b FlowSpec) bool {
+	return a.FlowKeys.Equals(b.FlowKeys)
 }
 
 // Most flow keys can be handled as opaque bytes.  Doing so avoids
@@ -462,13 +533,32 @@ func parseBlobFlowKey(typ uint16, key []byte, mask []byte, size int) (BlobFlowKe
 	return res, nil
 }
 
-// Packet QoS priority flow key
+// OVS_KEY_ATTR_PRIORITY: Packet QoS priority flow key
 
 func parsePriorityFlowKey(key []byte, mask []byte) (FlowKey, error) {
 	return parseBlobFlowKey(OVS_KEY_ATTR_PRIORITY, key, mask, 4)
 }
 
-// Ethernet header flow key
+
+// OVS_KEY_ATTR_IN_PORT: Incoming port number
+
+// This flow key is problematic.  First, the kernel always does
+// an exact match for IN_PORT, i.e. it takes the mask to be 0xffffffff
+// if the key is set at all.  Second, when reporting the mask, the
+// kernel always sets the upper 16 bits, probably because port numbers
+// are 16 bits in the kernel, but IN_PORT is 32-bits.  It does this
+// even if the IN_PORT flow key was not set.  As a result, we take any
+// mask other than 0xffffffff to mean ignored.
+
+func parseInPortFlowKey(key []byte, mask []byte) (FlowKey, error) {
+	ignored := false
+	for _, b := range(mask) { ignored = ignored || b != 0xff }
+	if ignored { for i := range(mask) { mask[i] = 0 } }
+
+	return parseBlobFlowKey(OVS_KEY_ATTR_IN_PORT, key, mask, 4)
+}
+
+// OVS_KEY_ATTR_ETHERNET: Ethernet header flow key
 
 func NewEthernetFlowKey(src [ETH_ALEN]byte, dst [ETH_ALEN]byte) FlowKey {
 	fk, p := NewBlobFlowKey(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet)
@@ -482,27 +572,76 @@ func parseEthernetFlowKey(key []byte, mask []byte) (FlowKey, error) {
 	return parseBlobFlowKey(OVS_KEY_ATTR_ETHERNET, key, mask, SizeofOvsKeyEthernet)
 }
 
-// Ethertype flow key
+// OVS_KEY_ATTR_ETHERTYPE: Ethertype flow key
 
 func parseEthertypeFlowKey(key []byte, mask []byte) (FlowKey, error) {
 	return parseBlobFlowKey(OVS_KEY_ATTR_ETHERTYPE, key, mask, 2)
 }
 
-// SKB mark flow key "generic packet mark"
+// OVS_KEY_ATTR_SKB_MARK: SKB mark flow key ("generic packet mark")
 
 func parseSkbMarkFlowKey(key []byte, mask []byte) (FlowKey, error) {
 	return parseBlobFlowKey(OVS_KEY_ATTR_SKB_MARK, key, mask, 4)
 }
 
-var flowKeyParsers = map[uint16](func ([]byte, []byte) (FlowKey, error)) {
+// OVS_KEY_ATTR_TUNNEL: Tunnel flow key.  This is more elaborate than
+// other flow keys because it consists of a set of attributes.
+
+type TunnelFlowKey struct {
+	FlowKeys
+}
+
+func (TunnelFlowKey) typeId() uint16 {
+	return OVS_KEY_ATTR_TUNNEL
+}
+
+func (key TunnelFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
+	key.FlowKeys.toKeyNlAttrs(msg, OVS_KEY_ATTR_TUNNEL)
+}
+
+func (key TunnelFlowKey) putMaskNlAttr(msg *NlMsgBuilder) {
+	key.FlowKeys.toMaskNlAttrs(msg, OVS_KEY_ATTR_TUNNEL)
+}
+
+func (a TunnelFlowKey) Equals(gb FlowKey) bool {
+	b, ok := gb.(TunnelFlowKey)
+	if !ok { return false }
+
+	return a.FlowKeys.Equals(b.FlowKeys)
+}
+
+func parseTtlTunnelSubkey(key []byte, mask []byte) (FlowKey, error) {
+	return parseBlobFlowKey(OVS_TUNNEL_KEY_ATTR_TTL, key, mask, 1)
+}
+
+var tunnelSubkeyParsers = FlowKeyParsers {
+	OVS_TUNNEL_KEY_ATTR_TTL: parseTtlTunnelSubkey,
+}
+
+func parseTunnelFlowKey(key []byte, mask []byte) (FlowKey, error) {
+	keys, err := ParseNestedAttrs(key)
+	if err != nil { return nil, err }
+
+	masks, err := ParseNestedAttrs(mask)
+	if err != nil { return nil, err }
+
+	fk, err := parseFlowKeys(keys, masks, tunnelSubkeyParsers)
+	if err != nil { return nil, err }
+
+	return TunnelFlowKey{fk}, nil
+}
+
+var flowKeyParsers = FlowKeyParsers {
 	OVS_KEY_ATTR_PRIORITY: parsePriorityFlowKey,
+	OVS_KEY_ATTR_IN_PORT: parseInPortFlowKey,
 	OVS_KEY_ATTR_ETHERNET: parseEthernetFlowKey,
 	OVS_KEY_ATTR_ETHERTYPE: parseEthertypeFlowKey,
 	OVS_KEY_ATTR_SKB_MARK: parseSkbMarkFlowKey,
+	OVS_KEY_ATTR_TUNNEL: parseTunnelFlowKey,
 }
 
 func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
-	f := NewFlowSpec()
+	f := FlowSpec{}
 
 	_, err := msg.ExpectNlMsghdr(dp.dpif.familyIds[FLOW])
 	if err != nil { return f, err }
@@ -528,41 +667,8 @@ func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 	masks, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_MASK)
 	if err != nil { return f, err}
 
-	for typ, key := range(keys) {
-		mask, _ := masks[typ]
-
-		parser, ok := flowKeyParsers[typ]
-		if !ok {
-			fmt.Printf("unknown flow key type %d (key %v)\n", typ, key)
-			//err = fmt.Errorf("unknown flow key type %d", typ)
-			//return f, err
-			continue
-		}
-
-		f.keys[typ], err = parser(key, mask)
-		if err != nil {
-			return f, err
-		}
-	}
-
-	for typ, mask := range(masks) {
-		_, ok := keys[typ]
-		if !ok {
-			// flow key mask without a flow key value
-			parser, ok := flowKeyParsers[typ]
-			if !ok {
-				fmt.Printf("unknown flow key type %d (mask %v)\n", typ, mask)
-				//err = fmt.Errorf("unknown flow key type %d", typ)
-				//return f, err
-				continue
-			}
-
-			f.keys[typ], err = parser(nil, mask)
-			if err != nil {
-				return f, err
-			}
-		}
-	}
+	f.FlowKeys, err = parseFlowKeys(keys, masks, flowKeyParsers)
+	if err != nil { return f, err }
 
 	return f, nil
 }

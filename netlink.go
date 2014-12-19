@@ -342,14 +342,18 @@ func (attrs Attrs) GetString(typ uint16) (string, error) {
 	return string(val[0:len(val) - 1]), nil
 }
 
+func ParseNestedAttrs(data []byte) (Attrs, error) {
+	parser := NlMsgParser{data: data, pos: 0}
+	return parser.TakeAttrs()
+}
+
 func (attrs Attrs) GetNestedAttrs(typ uint16) (Attrs, error) {
 	val, err := attrs.Get(typ)
 	if err != nil {
 		return nil, err
 	}
 
-	parser := NlMsgParser{data: val, pos: 0}
-	return parser.TakeAttrs()
+	return ParseNestedAttrs(val)
 }
 
 func (attrs Attrs) GetStruct(typ uint16, size int) (unsafe.Pointer, error) {

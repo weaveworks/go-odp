@@ -137,6 +137,16 @@ const ( // ovs_key_attr
 	OVS_KEY_ATTR_TCP_FLAGS = 18
 )
 
+const ( // ovs_tunnel_key_attr
+	OVS_TUNNEL_KEY_ATTR_ID = 0
+	OVS_TUNNEL_KEY_ATTR_IPV4_SRC = 1
+	OVS_TUNNEL_KEY_ATTR_IPV4_DST = 2
+	OVS_TUNNEL_KEY_ATTR_TOS = 3
+	OVS_TUNNEL_KEY_ATTR_TTL = 4
+	OVS_TUNNEL_KEY_ATTR_DONT_FRAGMENT = 5
+	OVS_TUNNEL_KEY_ATTR_CSUM = 6
+)
+
 const ETH_ALEN = 6
 
 type OvsKeyEthernet struct {
