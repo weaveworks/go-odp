@@ -3,10 +3,11 @@ package main
 import (
 	"os"
 	"fmt"
+	"github.com/dpw/go-openvswitch/openvswitch"
 )
 
 func main() {
-	dpif, err := NewDpif()
+	dpif, err := openvswitch.NewDpif()
 	if err != nil {
 		panic(err)
 	}
