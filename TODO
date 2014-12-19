@@ -1,7 +1,5 @@
 TODOs in dpif.go
 
-Unify "wrong datapath ifindex" check
-
 Port types
 
 ip2 style util to create, delete, dump datapath

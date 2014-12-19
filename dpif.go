@@ -69,13 +69,13 @@ func ovsHeaderAt(data []byte, pos int) *OvsHeader {
 	return (*OvsHeader)(unsafe.Pointer(&data[pos]))
 }
 
-func (nlmsg *NlMsgBuilder) PutOvsHeader(ifindex int32) {
+func (nlmsg *NlMsgBuilder) putOvsHeader(ifindex int32) {
 	pos := nlmsg.AlignGrow(syscall.NLMSG_ALIGNTO, SizeofOvsHeader)
 	h := ovsHeaderAt(nlmsg.buf, pos)
 	h.DpIfIndex = ifindex
 }
 
-func (nlmsg *NlMsgParser) TakeOvsHeader() (*OvsHeader, error) {
+func (nlmsg *NlMsgParser) takeOvsHeader() (*OvsHeader, error) {
 	pos, err := nlmsg.AlignAdvance(syscall.NLMSG_ALIGNTO, SizeofOvsHeader)
 	if err != nil {
 		return nil, err
@@ -96,7 +96,7 @@ func (dpif *Dpif) parseDatapathInfo(msg *NlMsgParser) (res datapathInfo, err err
 	_, err = msg.ExpectGenlMsghdr(OVS_DP_CMD_NEW)
 	if err != nil { return }
 
-	ovshdr, err := msg.TakeOvsHeader()
+	ovshdr, err := msg.takeOvsHeader()
 	if err != nil { return }
 	res.ifindex = ovshdr.DpIfIndex
 
@@ -117,7 +117,7 @@ func (dpif *Dpif) CreateDatapath(name string) (*Datapath, error) {
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[DATAPATH])
 	req.PutGenlMsghdr(OVS_DP_CMD_NEW, OVS_DATAPATH_VERSION)
-	req.PutOvsHeader(0)
+	req.putOvsHeader(0)
 	req.PutStringAttr(OVS_DP_ATTR_NAME, name)
 	req.PutUint32Attr(OVS_DP_ATTR_UPCALL_PID, 0)
 	req.PutUint32Attr(OVS_DP_ATTR_USER_FEATURES, features)
@@ -138,7 +138,7 @@ func (dpif *Dpif) CreateDatapath(name string) (*Datapath, error) {
 func (dpif *Dpif) LookupDatapath(name string) (*Datapath, error) {
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[DATAPATH])
 	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
-	req.PutOvsHeader(0)
+	req.putOvsHeader(0)
 	req.PutStringAttr(OVS_DP_ATTR_NAME, name)
 
 	resp, err := dpif.sock.Request(req)
@@ -164,7 +164,7 @@ func (dpif *Dpif) EnumerateDatapaths() (map[string]*Datapath, error) {
 
 	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[DATAPATH])
 	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
-	req.PutOvsHeader(0)
+	req.putOvsHeader(0)
 
 	consumer := func (resp *NlMsgParser) error {
 		dpi, err := dpif.parseDatapathInfo(resp)
@@ -184,7 +184,7 @@ func (dpif *Dpif) EnumerateDatapaths() (map[string]*Datapath, error) {
 func (dp *Datapath) Delete() error {
 	req := NewNlMsgBuilder(RequestFlags, dp.dpif.familyIds[DATAPATH])
 	req.PutGenlMsghdr(OVS_DP_CMD_DEL, OVS_DATAPATH_VERSION)
-	req.PutOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.ifindex)
 
 	_, err := dp.dpif.sock.Request(req)
 	if err != nil {	return err }
@@ -199,6 +199,17 @@ type portInfo struct {
 	name string
 }
 
+func (dp *Datapath) checkOvsHeader(msg *NlMsgParser) error {
+	ovshdr, err := msg.takeOvsHeader()
+	if err != nil { return err }
+
+	if ovshdr.DpIfIndex != dp.ifindex {
+		return fmt.Errorf("wrong datapath ifindex in response (got %d, expected %d)", ovshdr.DpIfIndex, dp.ifindex)
+	}
+
+	return nil
+}
+
 func (dp *Datapath) parsePortInfo(msg *NlMsgParser) (res portInfo, err error) {
 	_, err = msg.ExpectNlMsghdr(dp.dpif.familyIds[VPORT])
 	if err != nil { return }
@@ -206,13 +217,8 @@ func (dp *Datapath) parsePortInfo(msg *NlMsgParser) (res portInfo, err error) {
 	_, err = msg.ExpectGenlMsghdr(OVS_VPORT_CMD_NEW)
 	if err != nil { return }
 
-	ovshdr, err := msg.TakeOvsHeader()
+	err = dp.checkOvsHeader(msg)
 	if err != nil { return }
-
-	if ovshdr.DpIfIndex != dp.ifindex {
-		err = fmt.Errorf("wrong datapath ifindex in response (got %d, expected %d)", ovshdr.DpIfIndex, dp.ifindex)
-		return
-	}
 
 	attrs, err := msg.TakeAttrs()
 	if err != nil { return }
@@ -234,7 +240,7 @@ func (dp *Datapath) CreatePort(name string) (*Port, error) {
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_NEW, OVS_VPORT_VERSION)
-	req.PutOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.ifindex)
 	req.PutStringAttr(OVS_VPORT_ATTR_NAME, name)
 	req.PutUint32Attr(OVS_VPORT_ATTR_TYPE, OVS_VPORT_TYPE_INTERNAL)
 	req.PutUint32Attr(OVS_VPORT_ATTR_UPCALL_PID, dpif.sock.Pid())
@@ -257,7 +263,7 @@ func (dp *Datapath) LookupPort(name string) (*Port, error) {
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
-	req.PutOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.ifindex)
 	req.PutStringAttr(OVS_VPORT_ATTR_NAME, name)
 
 	resp, err := dpif.sock.Request(req)
@@ -284,7 +290,7 @@ func (dp *Datapath) EnumeratePorts() (map[string]*Port, error) {
 
 	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
-	req.PutOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.ifindex)
 
 	consumer := func (resp *NlMsgParser) error {
 		pi, err := dp.parsePortInfo(resp)
@@ -306,7 +312,7 @@ func (port *Port) Delete() error {
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_DEL, OVS_VPORT_VERSION)
-	req.PutOvsHeader(port.datapath.ifindex)
+	req.putOvsHeader(port.datapath.ifindex)
 	req.PutUint32Attr(OVS_VPORT_ATTR_PORT_NO, port.portNo)
 
 	_, err := dpif.sock.Request(req)
@@ -675,13 +681,8 @@ func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 	_, err = msg.ExpectGenlMsghdr(OVS_FLOW_CMD_NEW)
 	if err != nil { return f, err }
 
-	ovshdr, err := msg.TakeOvsHeader()
+	err = dp.checkOvsHeader(msg)
 	if err != nil { return f, err }
-
-	if ovshdr.DpIfIndex != dp.ifindex {
-		err = fmt.Errorf("wrong datapath ifindex in response (got %d, expected %d)", ovshdr.DpIfIndex, dp.ifindex)
-		return f, err
-	}
 
 	attrs, err := msg.TakeAttrs()
 	if err != nil { return f, err }
@@ -703,7 +704,7 @@ func (dp *Datapath) CreateFlow(f FlowSpec) error {
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[FLOW])
 	req.PutGenlMsghdr(OVS_FLOW_CMD_NEW, OVS_FLOW_VERSION)
-	req.PutOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.ifindex)
 	f.toNlAttrs(req)
 
 	_, err := dpif.sock.Request(req)
@@ -722,7 +723,7 @@ func (dp *Datapath) DeleteFlow(f FlowSpec) error {
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[FLOW])
 	req.PutGenlMsghdr(OVS_FLOW_CMD_DEL, OVS_FLOW_VERSION)
-	req.PutOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.ifindex)
 	f.toNlAttrs(req)
 
 	_, err := dpif.sock.Request(req)
@@ -739,7 +740,7 @@ func (dp *Datapath) EnumerateFlows() ([]FlowSpec, error) {
 
 	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[FLOW])
 	req.PutGenlMsghdr(OVS_FLOW_CMD_GET, OVS_FLOW_VERSION)
-	req.PutOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.ifindex)
 
 	consumer := func (resp *NlMsgParser) error {
 		f, err := dp.parseFlowSpec(resp)
