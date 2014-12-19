@@ -369,36 +369,66 @@ func (keys FlowKeys) toMaskNlAttrs(msg *NlMsgBuilder, typ uint16) {
 	})
 }
 
-// Maps an NL attribute type to the corresponding FlowKey parsing function
-type FlowKeyParsers map[uint16](func ([]byte, []byte) (FlowKey, error))
+// A FlowKeyParser describes how to parse a flow key of a particular
+// type from a netlnk message
+type FlowKeyParser struct {
+	// Flow key parsing function
+	//
+	// key may be nil if the relevant attribute wasn't provided.
+	// The generally means that the mask will indicate that the
+	// flow key is ignored.
+	parse func (typ uint16, key []byte, mask []byte) (FlowKey, error)
+
+	// Special mask values indicating that the flow key is an
+	// exact match or ignored.
+	exactMask []byte
+	ignoreMask []byte
+}
+
+// Maps an NL attribute type to the corresponding FlowKeyParser
+type FlowKeyParsers map[uint16]FlowKeyParser
 
 func parseFlowKeys(keys Attrs, masks Attrs, parsers FlowKeyParsers) (res FlowKeys, err error) {
 	res = make(FlowKeys)
 
 	for typ, key := range(keys) {
-		mask, _ := masks[typ]
-
 		parser, ok := parsers[typ]
 		if !ok {
 			return nil, fmt.Errorf("unknown flow key type %d (value %v)", typ, key)
 		}
 
-		res[typ], err = parser(key, mask)
+		var mask []byte
+		if masks == nil {
+			// "OVS_FLOW_ATTR_MASK: ... If not present,
+			// all flow key bits are exact match bits."
+			mask = parser.exactMask
+		} else {
+			// "Omitting attribute is treated as
+			// wildcarding all corresponding fields"
+			mask, ok = masks[typ]
+			if !ok { mask = parser.ignoreMask }
+		}
+
+
+		res[typ], err = parser.parse(typ, key, mask)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	for typ, mask := range(masks) {
-		_, ok := keys[typ]
-		if !ok {
-			// flow key mask without a corresponding flow key value
+	if masks != nil {
+		for typ, mask := range(masks) {
+			_, ok := keys[typ]
+			if ok { continue }
+
+			// flow key mask without a corresponding flow
+			// key value
 			parser, ok := parsers[typ]
 			if !ok {
 				return nil, fmt.Errorf("unknown flow key type %d (mask %v)", typ, mask)
 			}
 
-			res[typ], err = parser(nil, mask)
+			res[typ], err = parser.parse(typ, nil, mask)
 			if err != nil {
 				return nil, err
 			}
@@ -439,6 +469,9 @@ func (a FlowSpec) Equals(b FlowSpec) bool {
 
 type BlobFlowKey struct {
 	typ uint16
+
+	// This holds the key and the mask concetenated, so it is
+	// twice their length
 	keyMask []byte
 }
 
@@ -458,7 +491,6 @@ func (key BlobFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
 }
 
 func (key BlobFlowKey) putMaskNlAttr(msg *NlMsgBuilder) {
-	// TODO: if mask is exact, don't bother
 	msg.PutSliceAttr(key.typ, key.keyMask[len(key.keyMask) / 2:])
 }
 
@@ -498,9 +530,10 @@ func parseBlobFlowKey(typ uint16, key []byte, mask []byte, size int) (BlobFlowKe
 
 		copy(res.keyMask[size:], mask)
 	} else {
-		// no mask recieved, assume an exact match
+		// "OVS_FLOW_ATTR_MASK: ... Omitting attribute is
+		// treated as wildcarding all corresponding fields."
 		mask = res.keyMask[size:]
-		for i := range(mask) { mask[i] = 0xff }
+		for i := range(mask) { mask[i] = 0x00 }
 	}
 
 	if key != nil {
@@ -523,15 +556,21 @@ func parseBlobFlowKey(typ uint16, key []byte, mask []byte, size int) (BlobFlowKe
 	return res, nil
 }
 
-// OVS_KEY_ATTR_PRIORITY: Packet QoS priority flow key
+func blobFlowKeyParser(size int) FlowKeyParser {
+	exact := make([]byte, size)
+	for i := range(exact) { exact[i] = 0xff }
 
-func parsePriorityFlowKey(key []byte, mask []byte) (FlowKey, error) {
-	return parseBlobFlowKey(OVS_KEY_ATTR_PRIORITY, key, mask, 4)
+	return FlowKeyParser{
+		parse: func (typ uint16, key []byte, mask []byte) (FlowKey, error) {
+			return parseBlobFlowKey(typ, key, mask, size)
+		},
+		ignoreMask: make([]byte, size),
+		exactMask: exact,
+	}
 }
 
-
 // OVS_KEY_ATTR_IN_PORT: Incoming port number
-
+//
 // This flow key is problematic.  First, the kernel always does
 // an exact match for IN_PORT, i.e. it takes the mask to be 0xffffffff
 // if the key is set at all.  Second, when reporting the mask, the
@@ -540,12 +579,11 @@ func parsePriorityFlowKey(key []byte, mask []byte) (FlowKey, error) {
 // even if the IN_PORT flow key was not set.  As a result, we take any
 // mask other than 0xffffffff to mean ignored.
 
-func parseInPortFlowKey(key []byte, mask []byte) (FlowKey, error) {
-	ignored := false
-	for _, b := range(mask) { ignored = ignored || b != 0xff }
-	if ignored { for i := range(mask) { mask[i] = 0 } }
-
-	return parseBlobFlowKey(OVS_KEY_ATTR_IN_PORT, key, mask, 4)
+func parseInPortFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
+	exact := true
+	for _, b := range(mask) { exact = exact && b == 0xff }
+	if !exact { for i := range(mask) { mask[i] = 0 } }
+	return parseBlobFlowKey(typ, key, mask, 4)
 }
 
 // OVS_KEY_ATTR_ETHERNET: Ethernet header flow key
@@ -556,22 +594,6 @@ func NewEthernetFlowKey(src [ETH_ALEN]byte, dst [ETH_ALEN]byte) FlowKey {
 	ek.EthSrc = src
 	ek.EthDst = dst
 	return fk
-}
-
-func parseEthernetFlowKey(key []byte, mask []byte) (FlowKey, error) {
-	return parseBlobFlowKey(OVS_KEY_ATTR_ETHERNET, key, mask, SizeofOvsKeyEthernet)
-}
-
-// OVS_KEY_ATTR_ETHERTYPE: Ethertype flow key
-
-func parseEthertypeFlowKey(key []byte, mask []byte) (FlowKey, error) {
-	return parseBlobFlowKey(OVS_KEY_ATTR_ETHERTYPE, key, mask, 2)
-}
-
-// OVS_KEY_ATTR_SKB_MARK: SKB mark flow key ("generic packet mark")
-
-func parseSkbMarkFlowKey(key []byte, mask []byte) (FlowKey, error) {
-	return parseBlobFlowKey(OVS_KEY_ATTR_SKB_MARK, key, mask, 4)
 }
 
 // OVS_KEY_ATTR_TUNNEL: Tunnel flow key.  This is more elaborate than
@@ -600,17 +622,19 @@ func (a TunnelFlowKey) Equals(gb FlowKey) bool {
 	return a.FlowKeys.Equals(b.FlowKeys)
 }
 
-func parseTtlTunnelSubkey(key []byte, mask []byte) (FlowKey, error) {
-	return parseBlobFlowKey(OVS_TUNNEL_KEY_ATTR_TTL, key, mask, 1)
-}
-
 var tunnelSubkeyParsers = FlowKeyParsers {
-	OVS_TUNNEL_KEY_ATTR_TTL: parseTtlTunnelSubkey,
+	OVS_TUNNEL_KEY_ATTR_TTL: blobFlowKeyParser(1),
 }
 
-func parseTunnelFlowKey(key []byte, mask []byte) (FlowKey, error) {
-	keys, err := ParseNestedAttrs(key)
-	if err != nil { return nil, err }
+func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
+	var keys Attrs
+	var err error
+	if key != nil {
+		keys, err = ParseNestedAttrs(key)
+		if err != nil { return nil, err }
+	} else {
+		keys = make(Attrs)
+	}
 
 	masks, err := ParseNestedAttrs(mask)
 	if err != nil { return nil, err }
@@ -622,12 +646,24 @@ func parseTunnelFlowKey(key []byte, mask []byte) (FlowKey, error) {
 }
 
 var flowKeyParsers = FlowKeyParsers {
-	OVS_KEY_ATTR_PRIORITY: parsePriorityFlowKey,
-	OVS_KEY_ATTR_IN_PORT: parseInPortFlowKey,
-	OVS_KEY_ATTR_ETHERNET: parseEthernetFlowKey,
-	OVS_KEY_ATTR_ETHERTYPE: parseEthertypeFlowKey,
-	OVS_KEY_ATTR_SKB_MARK: parseSkbMarkFlowKey,
-	OVS_KEY_ATTR_TUNNEL: parseTunnelFlowKey,
+	// Packet QoS priority flow key
+	OVS_KEY_ATTR_PRIORITY: blobFlowKeyParser(4),
+
+	OVS_KEY_ATTR_IN_PORT: FlowKeyParser{
+		parse: parseInPortFlowKey,
+		exactMask: []byte { 0xff, 0xff, 0xff, 0xff },
+		ignoreMask: []byte { 0, 0, 0, 0 },
+	},
+
+	OVS_KEY_ATTR_ETHERNET: blobFlowKeyParser(SizeofOvsKeyEthernet),
+	OVS_KEY_ATTR_ETHERTYPE: blobFlowKeyParser(2),
+	OVS_KEY_ATTR_SKB_MARK: blobFlowKeyParser(4),
+
+	OVS_KEY_ATTR_TUNNEL: FlowKeyParser{
+		parse: parseTunnelFlowKey,
+		exactMask: nil,
+		ignoreMask: []byte {},
+	},
 }
 
 func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
@@ -655,7 +691,6 @@ func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 
 	masks, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_MASK, true)
 	if err != nil { return f, err}
-	if masks == nil { masks = make(Attrs) }
 
 	f.FlowKeys, err = parseFlowKeys(keys, masks, flowKeyParsers)
 	if err != nil { return f, err }
