@@ -1,10 +1,24 @@
+tool: handle errors nicelier
+
+tool: unify dpif opening
+
+tool: enumerate dps
+
+tool: create port
+
+tool: delete port
+
+tool: enumerate ports
+
+tool: flows
+
 TODOs in dpif.go
 
 Port types
 
-ip2 style util to create, delete, dump datapath
-
 Handle NLM_F_DUMP_INTR
+
+Printfs should use logging?
 
 Dump flow stats
 
