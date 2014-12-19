@@ -11,57 +11,54 @@ func init() {
 	rand.Seed(time.Now().UTC().UnixNano())
 }
 
-func maybeFatal(t *testing.T, err error) {
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 func checkedCloseDpif(dpif *Dpif, t *testing.T) {
-	maybeFatal(t, dpif.Close())
+	err := dpif.Close()
+	if err != nil { t.Fatal(err) }
 }
 
 func TestCreateDatapath(t *testing.T) {
 	dpif, err := NewDpif()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
 
 	dp, err := dpif.CreateDatapath(name)
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 
-	maybeFatal(t, dp.Delete())
+	err = dp.Delete()
+	if err != nil { t.Fatal(err) }
 }
 
 func TestLookupDatapath(t *testing.T) {
 	dpif, err := NewDpif()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
 	dp, err := dpif.LookupDatapath(name)
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	if dp != nil { t.Fatal("LookupDatapath should return nil for non-existent name") }
 
 	_, err = dpif.CreateDatapath(name)
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 
 	checkedCloseDpif(dpif, t)
 	dpif, err = NewDpif()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
 
 	dp, err = dpif.LookupDatapath(name)
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	if dp == nil { t.Fatal("LookupDatapath returned nil") }
 
-	maybeFatal(t, dp.Delete())
+	err = dp.Delete()
+	if err != nil { t.Fatal(err) }
 }
 
 func TestEnumerateDatapaths(t *testing.T) {
 	dpif, err := NewDpif()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
 
 	const n = 10
@@ -83,12 +80,12 @@ func TestEnumerateDatapaths(t *testing.T) {
 	for i := range(names) {
 		names[i] = fmt.Sprintf("test%d", rand.Intn(100000))
 		dp, err := dpif.CreateDatapath(names[i])
-		maybeFatal(t, err)
+		if err != nil { t.Fatal(err) }
 		dps[i] = dp
 	}
 
 	name2dp, err := dpif.EnumerateDatapaths()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	for _, name := range(names) {
 		_, ok := name2dp[name]
 		if !ok { t.Fatal() }
@@ -97,7 +94,7 @@ func TestEnumerateDatapaths(t *testing.T) {
 	cleanup()
 
 	name2dp, err = dpif.EnumerateDatapaths()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	for _, name := range(names) {
 		_, ok := name2dp[name]
 		if ok { t.Fatal() }
@@ -105,67 +102,69 @@ func TestEnumerateDatapaths(t *testing.T) {
 }
 
 func checkedDeleteDatapath(dp *Datapath, t *testing.T) {
-	maybeFatal(t, dp.Delete())
+	err := dp.Delete()
+	if err != nil { t.Fatal(err) }
 }
 
 func TestCreatePort(t *testing.T) {
 	dpif, err := NewDpif()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
 
 	dp, err := dpif.CreateDatapath(fmt.Sprintf("test%d", rand.Intn(100000)))
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedDeleteDatapath(dp, t)
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
 	port, err := dp.CreatePort(name)
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 
 	err = port.Delete()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 }
 
 func TestLookupPort(t *testing.T) {
 	dpif, err := NewDpif()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
 
 	dpname := fmt.Sprintf("test%d", rand.Intn(100000))
 	dp, err := dpif.CreateDatapath(dpname)
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
 	port, err := dp.LookupPort(name)
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	if port != nil { t.Fatal("LookupPort should return nil for non-existent name") }
 
 	_, err = dp.CreatePort(name)
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 
 	checkedCloseDpif(dpif, t)
 	dpif, err = NewDpif()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
 
 	dp, err = dpif.LookupDatapath(dpname)
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	if dp == nil { t.Fatal("LookupDatapath returned nil") }
 	defer dp.Delete()
 
 	port, err = dp.LookupPort(name)
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	if port == nil { t.Fatal("LookupPort return nil") }
 
-	maybeFatal(t, port.Delete())
+	err = port.Delete()
+	if err != nil { t.Fatal(err) }
 }
 
 func TestEnumeratePorts(t *testing.T) {
 	dpif, err := NewDpif()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
 
 	dp, err := dpif.CreateDatapath(fmt.Sprintf("test%d", rand.Intn(100000)))
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	defer checkedDeleteDatapath(dp, t)
 
 	const n = 10
@@ -187,12 +186,12 @@ func TestEnumeratePorts(t *testing.T) {
 	for i := range(names) {
 		names[i] = fmt.Sprintf("test%d", rand.Intn(100000))
 		port, err := dp.CreatePort(names[i])
-		maybeFatal(t, err)
+		if err != nil { t.Fatal(err) }
 		ports[i] = port
 	}
 
 	name2port, err := dp.EnumeratePorts()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	for _, name := range(names) {
 		_, ok := name2port[name]
 		if !ok { t.Fatal() }
@@ -201,7 +200,7 @@ func TestEnumeratePorts(t *testing.T) {
 	cleanup()
 
 	name2port, err = dp.EnumeratePorts()
-	maybeFatal(t, err)
+	if err != nil { t.Fatal(err) }
 	for _, name := range(names) {
 		_, ok := name2port[name]
 		if ok { t.Fatal() }

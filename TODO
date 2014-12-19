@@ -1,5 +1,3 @@
-Kill maybeFatal
-
 TODOs in dpif.go
 
 TestEnumeratePorts: don't need to cleanup really, should be no ports
