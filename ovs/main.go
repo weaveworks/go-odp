@@ -23,26 +23,43 @@ func (cmd command) run(args []string, pos int) bool {
 	return cmd(args[pos:])
 }
 
-type commandMap map[string]commandDispatch
+type subcommands map[string]commandDispatch
 
-func (cm commandMap) run(args []string, pos int) bool {
+func (cmds subcommands) run(args []string, pos int) bool {
 	if pos >= len(args) {
-		return printErr("Subcommand required by \"%s\".  Try \"%s help\"\n", strings.Join(args[:pos], " "), args[0])
+		return printErr("Subcommand required by \"%s\".  Try \"%s help\"", strings.Join(args[:pos], " "), args[0])
 	}
 
-	cd, ok := cm[args[pos]]
+	cd, ok := cmds[args[pos]]
 
 	if !ok {
-		return printErr("Unknown command \"%s\".  Try \"%s help\"\n", strings.Join(args[:pos + 1], " "), args[0])
+		return printErr("Unknown command \"%s\".  Try \"%s help\"", strings.Join(args[:pos + 1], " "), args[0])
 	}
 
 	return cd.run(args, pos + 1)
 }
 
-var commands = commandMap {
-	"datapath": commandMap {
-		"create": command(createDatapath),
-		"delete": command(deleteDatapath),
+type possibleSubcommands struct {
+	command command
+	subcommands subcommands
+}
+
+func (cmds possibleSubcommands) run(args []string, pos int) bool {
+	if pos >= len(args) {
+		return cmds.command(args[pos:])
+	}
+
+	return cmds.subcommands.run(args, pos)
+}
+
+
+var commands = subcommands {
+	"datapath": possibleSubcommands {
+		listDatapaths,
+		subcommands {
+			"create": command(createDatapath),
+			"delete": command(deleteDatapath),
+		},
 	},
 }
 
@@ -65,7 +82,7 @@ func createDatapath(args []string) bool {
 	return true
 }
 
-func deleteDatapath(args []string)  bool {
+func deleteDatapath(args []string) bool {
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
@@ -80,6 +97,19 @@ func deleteDatapath(args []string)  bool {
 
 		err = dp.Delete()
 		if err != nil { return printErr("%s", err) }
+	}
+
+	return true
+}
+
+func listDatapaths(args []string) bool {
+	dpif, err := openvswitch.NewDpif()
+	if err != nil { return printErr("%s", err) }
+	defer dpif.Close()
+
+	name2dp, err := dpif.EnumerateDatapaths()
+	for name := range(name2dp) {
+		fmt.Printf("%s\n", name)
 	}
 
 	return true
