@@ -7,36 +7,36 @@ import (
 	"github.com/dpw/go-openvswitch/openvswitch"
 )
 
-func die(f string, a ...interface{}) {
+func printErr(f string, a ...interface{}) bool {
 	fmt.Fprintf(os.Stderr, f, a...)
 	os.Stderr.WriteString("\n")
-	os.Exit(1)
+	return false
 }
 
 type commandDispatch interface {
-	run(args []string, pos int)
+	run(args []string, pos int) bool
 }
 
-type command func (args []string)
+type command func (args []string) bool
 
-func (cmd command) run(args []string, pos int) {
-	cmd(args[pos:])
+func (cmd command) run(args []string, pos int) bool {
+	return cmd(args[pos:])
 }
 
 type commandMap map[string]commandDispatch
 
-func (cm commandMap) run(args []string, pos int) {
+func (cm commandMap) run(args []string, pos int) bool {
 	if pos >= len(args) {
-		die("Subcommand required by \"%s\".  Try \"%s help\"", strings.Join(args[:pos], " "), os.Args[0])
+		return printErr("Subcommand required by \"%s\".  Try \"%s help\"\n", strings.Join(args[:pos], " "), args[0])
 	}
 
 	cd, ok := cm[args[pos]]
 
 	if !ok {
-		die("Unknown command \"%s\".  Try \"%s help\"", strings.Join(args[:pos + 1], " "), os.Args[0])
+		return printErr("Unknown command \"%s\".  Try \"%s help\"\n", strings.Join(args[:pos + 1], " "), args[0])
 	}
 
-	cd.run(args, pos + 1)
+	return cd.run(args, pos + 1)
 }
 
 var commands = commandMap {
@@ -47,49 +47,40 @@ var commands = commandMap {
 }
 
 func main() {
-	commands.run(os.Args, 1)
+	if (!commands.run(os.Args, 1)) {
+		os.Exit(1)
+	}
 }
 
-
-func createDatapath(args []string) {
+func createDatapath(args []string) bool {
 	dpif, err := openvswitch.NewDpif()
-	if err != nil {
-		panic(err)
-	}
+	if err != nil { return printErr("%s", err) }
+	defer dpif.Close()
 
 	for _, name := range(args) {
 		_, err = dpif.CreateDatapath(name)
-		if err != nil {
-			panic(err)
-		}
+		if err != nil { return printErr("%s", err) }
 	}
 
-	err = dpif.Close()
-	if err != nil {
-		panic(err)
-	}
+	return true
 }
 
-func deleteDatapath(args []string) {
+func deleteDatapath(args []string)  bool {
 	dpif, err := openvswitch.NewDpif()
-	if err != nil {
-		panic(err)
-	}
+	if err != nil { return printErr("%s", err) }
+	defer dpif.Close()
 
 	for _, name := range(args) {
 		dp, err := dpif.LookupDatapath(name)
-		if err != nil {
-			panic(err)
+		if err != nil { return printErr("%s", err) }
+
+		if dp == nil {
+			return printErr("Cannot find datapath \"%s\"", name);
 		}
 
 		err = dp.Delete()
-		if err != nil {
-			panic(err)
-		}
+		if err != nil { return printErr("%s", err) }
 	}
 
-	err = dpif.Close()
-	if err != nil {
-		panic(err)
-	}
+	return true
 }
