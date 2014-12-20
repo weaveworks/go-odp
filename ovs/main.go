@@ -4,6 +4,7 @@ import (
 	"os"
 	"fmt"
 	"strings"
+	"flag"
 	"github.com/dpw/go-openvswitch/openvswitch"
 )
 
@@ -17,11 +18,6 @@ type commandDispatch interface {
 	run(args []string, pos int) bool
 }
 
-type command func (args []string) bool
-
-func (cmd command) run(args []string, pos int) bool {
-	return cmd(args[pos:])
-}
 
 type subcommands map[string]commandDispatch
 
@@ -39,6 +35,24 @@ func (cmds subcommands) run(args []string, pos int) bool {
 	return cd.run(args, pos + 1)
 }
 
+
+type Flags struct {
+	*flag.FlagSet
+	args []string
+}
+
+func (f Flags) Parse() {
+	f.FlagSet.Parse(f.args)
+}
+
+type command func (f Flags) bool
+
+func (fcmd command) run(args []string, pos int) bool {
+	f := flag.NewFlagSet(strings.Join(args[:pos], " "), flag.ExitOnError)
+	return fcmd(Flags{f, args[pos:]})
+}
+
+
 type possibleSubcommands struct {
 	command command
 	subcommands subcommands
@@ -46,7 +60,7 @@ type possibleSubcommands struct {
 
 func (cmds possibleSubcommands) run(args []string, pos int) bool {
 	if pos >= len(args) {
-		return cmds.command(args[pos:])
+		return cmds.command.run(args, pos)
 	}
 
 	return cmds.subcommands.run(args, pos)
@@ -69,12 +83,14 @@ func main() {
 	}
 }
 
-func createDatapath(args []string) bool {
+func createDatapath(f Flags) bool {
+	f.Parse()
+
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	for _, name := range(args) {
+	for _, name := range(f.Args()) {
 		_, err = dpif.CreateDatapath(name)
 		if err != nil { return printErr("%s", err) }
 	}
@@ -82,12 +98,14 @@ func createDatapath(args []string) bool {
 	return true
 }
 
-func deleteDatapath(args []string) bool {
+func deleteDatapath(f Flags) bool {
+	f.Parse()
+
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	for _, name := range(args) {
+	for _, name := range(f.Args()) {
 		dp, err := dpif.LookupDatapath(name)
 		if err != nil { return printErr("%s", err) }
 
@@ -102,7 +120,9 @@ func deleteDatapath(args []string) bool {
 	return true
 }
 
-func listDatapaths(args []string) bool {
+func listDatapaths(f Flags) bool {
+	f.Parse()
+
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
