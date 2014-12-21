@@ -96,6 +96,11 @@ const ( // ovs_vport_type
 	OVS_VPORT_TYPE_VXLAN = 4
 )
 
+const ( // OVS_VPORT_ATTR_OPTIONS attributes for tunnels
+	OVS_TUNNEL_ATTR_UNSPEC = 0
+        OVS_TUNNEL_ATTR_DST_PORT = 1
+)
+
 const ( // ovs_flow_cmd
 	OVS_FLOW_CMD_UNSPEC = 0
 	OVS_FLOW_CMD_NEW = 1

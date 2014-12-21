@@ -88,7 +88,10 @@ var commands = subcommands {
 		},
 	},
 	"vport": subcommands {
-		"create": command(createVport),
+		"create": subcommands {
+			"internal": command(createInternalVport),
+			"vxlan" : command(createVxlanVport),
+		},
 		"delete": command(deleteVport),
 		"list": command(listVports),
 	},
@@ -152,8 +155,25 @@ func listDatapaths(f Flags) bool {
 	return true
 }
 
-func createVport(f Flags) bool {
+func createInternalVport(f Flags) bool {
 	f.Parse()
+	return createVport(f, openvswitch.INTERNAL_VPORT_SPEC)
+}
+
+func createVxlanVport(f Flags) bool {
+	var destPort uint
+	// default taken from ovs/lib/netdev-vport.c
+	f.UintVar(&destPort, "destport", 4789, "destination UDP port number")
+	f.Parse()
+
+	if destPort > 65535 {
+		return printErr("destport too large")
+	}
+
+	return createVport(f, openvswitch.NewVxlanVportSpec(uint16(destPort)))
+}
+
+func createVport(f Flags, spec openvswitch.VportSpec) bool {
 	if !f.CheckNArg(2, 2) { return false }
 
 	dpif, err := openvswitch.NewDpif()
@@ -163,7 +183,7 @@ func createVport(f Flags) bool {
 	dp, err := dpif.LookupDatapath(f.Arg(0))
 	if err != nil { return printErr("%s", err) }
 
-	_, err = dp.CreateVport(f.Arg(1))
+	_, err = dp.CreateVport(f.Arg(1), spec)
 	if err != nil { return printErr("%s", err) }
 
 	return true

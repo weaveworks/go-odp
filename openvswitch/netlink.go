@@ -158,6 +158,13 @@ func (nlmsg *NlMsgBuilder) PutNestedAttrs(typ uint16, gen func()) {
 	})
 }
 
+func (nlmsg *NlMsgBuilder) PutUint16Attr(typ uint16, val uint16) {
+	nlmsg.PutAttr(typ, func () {
+		pos := nlmsg.Grow(2)
+		setUint16(nlmsg.buf, pos, val)
+	})
+}
+
 func (nlmsg *NlMsgBuilder) PutUint32Attr(typ uint16, val uint32) {
 	nlmsg.PutAttr(typ, func () {
 		pos := nlmsg.Grow(4)

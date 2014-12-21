@@ -4,6 +4,41 @@ import (
 	"syscall"
 )
 
+type VportSpec interface {
+	typeId() uint32
+	optionNlAttrs(req *NlMsgBuilder)
+}
+
+type SimpleVportSpec struct {
+	typ uint32
+}
+
+func (s SimpleVportSpec) typeId() uint32 {
+	return s.typ
+}
+
+func (SimpleVportSpec) optionNlAttrs(req *NlMsgBuilder) {
+}
+
+var INTERNAL_VPORT_SPEC VportSpec = SimpleVportSpec{OVS_VPORT_TYPE_INTERNAL}
+
+
+type VxlanVportSpec struct {
+	destPort uint16
+}
+
+func (VxlanVportSpec) typeId() uint32 {
+	return OVS_VPORT_TYPE_VXLAN
+}
+
+func (v VxlanVportSpec) optionNlAttrs(req *NlMsgBuilder) {
+	req.PutUint16Attr(OVS_TUNNEL_ATTR_DST_PORT, v.destPort)
+}
+
+func NewVxlanVportSpec(destPort uint16) VportSpec {
+	return VxlanVportSpec{destPort}
+}
+
 type vportInfo struct {
 	portNo uint32
 	dpIfIndex int32
@@ -37,14 +72,17 @@ type Vport struct {
 	dpIfIndex int32
 }
 
-func (dp *Datapath) CreateVport(name string) (*Vport, error) {
+func (dp *Datapath) CreateVport(name string, spec VportSpec) (*Vport, error) {
 	dpif := dp.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_NEW, OVS_VPORT_VERSION)
 	req.putOvsHeader(dp.ifindex)
 	req.PutStringAttr(OVS_VPORT_ATTR_NAME, name)
-	req.PutUint32Attr(OVS_VPORT_ATTR_TYPE, OVS_VPORT_TYPE_INTERNAL)
+	req.PutUint32Attr(OVS_VPORT_ATTR_TYPE, spec.typeId())
+	req.PutNestedAttrs(OVS_VPORT_ATTR_OPTIONS, func () {
+		spec.optionNlAttrs(req)
+	})
 	req.PutUint32Attr(OVS_VPORT_ATTR_UPCALL_PID, dpif.sock.Pid())
 
 	resp, err := dpif.sock.Request(req)
