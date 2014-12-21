@@ -190,35 +190,26 @@ func (dp *Datapath) Delete() error {
 	if err != nil {	return err }
 
 	dp.dpif = nil
-	dp.ifindex = -1
+	dp.ifindex = 0
 	return nil
 }
 
 type portInfo struct {
 	portNo uint32
+	dpIfIndex int32
 	name string
 }
 
-func (dp *Datapath) checkOvsHeader(msg *NlMsgParser) error {
-	ovshdr, err := msg.takeOvsHeader()
-	if err != nil { return err }
-
-	if ovshdr.DpIfIndex != dp.ifindex {
-		return fmt.Errorf("wrong datapath ifindex in response (got %d, expected %d)", ovshdr.DpIfIndex, dp.ifindex)
-	}
-
-	return nil
-}
-
-func (dp *Datapath) parsePortInfo(msg *NlMsgParser) (res portInfo, err error) {
-	_, err = msg.ExpectNlMsghdr(dp.dpif.familyIds[VPORT])
+func (dpif *Dpif) parsePortInfo(msg *NlMsgParser) (res portInfo, err error) {
+	_, err = msg.ExpectNlMsghdr(dpif.familyIds[VPORT])
 	if err != nil { return }
 
 	_, err = msg.ExpectGenlMsghdr(OVS_VPORT_CMD_NEW)
 	if err != nil { return }
 
-	err = dp.checkOvsHeader(msg)
+	ovshdr, err := msg.takeOvsHeader()
 	if err != nil { return }
+	res.dpIfIndex = ovshdr.DpIfIndex
 
 	attrs, err := msg.TakeAttrs()
 	if err != nil { return }
@@ -231,8 +222,9 @@ func (dp *Datapath) parsePortInfo(msg *NlMsgParser) (res portInfo, err error) {
 }
 
 type Port struct {
-	datapath *Datapath
+	dpif *Dpif
 	portNo uint32
+	dpIfIndex int32
 }
 
 func (dp *Datapath) CreatePort(name string) (*Port, error) {
@@ -250,20 +242,18 @@ func (dp *Datapath) CreatePort(name string) (*Port, error) {
 		return nil, err
 	}
 
-	pi, err := dp.parsePortInfo(resp)
+	pi, err := dpif.parsePortInfo(resp)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Port{datapath: dp, portNo: pi.portNo}, nil
+	return &Port{dpif: dpif, portNo: pi.portNo, dpIfIndex: pi.dpIfIndex}, nil
 }
 
-func (dp *Datapath) LookupPort(name string) (*Port, error) {
-	dpif := dp.dpif
-
+func lookupPort(dpif *Dpif, dpifindex int32, name string) (*Port, error) {
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dpifindex)
 	req.PutStringAttr(OVS_VPORT_ATTR_NAME, name)
 
 	resp, err := dpif.sock.Request(req)
@@ -276,12 +266,20 @@ func (dp *Datapath) LookupPort(name string) (*Port, error) {
 		return nil, err
 	}
 
-	pi, err := dp.parsePortInfo(resp)
+	pi, err := dpif.parsePortInfo(resp)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Port{datapath: dp, portNo: pi.portNo}, nil
+	return &Port{dpif: dpif, portNo: pi.portNo, dpIfIndex: pi.dpIfIndex}, nil
+}
+
+func (dpif *Dpif) LookupPort(name string) (*Port, error) {
+	return lookupPort(dpif, 0, name)
+}
+
+func (dp *Datapath) LookupPort(name string) (*Port, error) {
+	return lookupPort(dp.dpif, dp.ifindex, name)
 }
 
 func (dp *Datapath) EnumeratePorts() (map[string]*Port, error) {
@@ -293,9 +291,9 @@ func (dp *Datapath) EnumeratePorts() (map[string]*Port, error) {
 	req.putOvsHeader(dp.ifindex)
 
 	consumer := func (resp *NlMsgParser) error {
-		pi, err := dp.parsePortInfo(resp)
+		pi, err := dpif.parsePortInfo(resp)
 		if err != nil {	return err }
-		res[pi.name] = &Port{datapath: dp, portNo: pi.portNo}
+		res[pi.name] = &Port{dpif: dpif, portNo: pi.portNo}
 		return nil
 	}
 
@@ -308,18 +306,18 @@ func (dp *Datapath) EnumeratePorts() (map[string]*Port, error) {
 }
 
 func (port *Port) Delete() error {
-	dpif := port.datapath.dpif
+	dpif := port.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_DEL, OVS_VPORT_VERSION)
-	req.putOvsHeader(port.datapath.ifindex)
+	req.putOvsHeader(port.dpIfIndex)
 	req.PutUint32Attr(OVS_VPORT_ATTR_PORT_NO, port.portNo)
 
 	_, err := dpif.sock.Request(req)
 	if err != nil { return err }
 
-	port.datapath = nil
-	port.portNo = ^uint32(0)
+	port.dpif = nil
+	port.portNo = 0
 	return nil
 }
 
@@ -670,6 +668,17 @@ var flowKeyParsers = FlowKeyParsers {
 		exactMask: nil,
 		ignoreMask: []byte {},
 	},
+}
+
+func (dp *Datapath) checkOvsHeader(msg *NlMsgParser) error {
+	ovshdr, err := msg.takeOvsHeader()
+	if err != nil { return err }
+
+	if ovshdr.DpIfIndex != dp.ifindex {
+		return fmt.Errorf("wrong datapath ifindex in response (got %d, expected %d)", ovshdr.DpIfIndex, dp.ifindex)
+	}
+
+	return nil
 }
 
 func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {

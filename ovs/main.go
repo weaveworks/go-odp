@@ -171,17 +171,19 @@ func createPort(f Flags) bool {
 
 func deletePort(f Flags) bool {
 	f.Parse()
-	if !f.CheckNArg(2, 2) { return false }
+	if !f.CheckNArg(1, 1) { return false }
 
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	dp, err := dpif.LookupDatapath(f.Arg(0))
+	name := f.Arg(0)
+	port, err := dpif.LookupPort(name)
 	if err != nil { return printErr("%s", err) }
 
-	port, err := dp.LookupPort(f.Arg(1))
-	if err != nil { return printErr("%s", err) }
+	if port == nil {
+		return printErr("Cannot find port \"%s\"", name);
+	}
 
 	err = port.Delete()
 	if err != nil { return printErr("%s", err) }
