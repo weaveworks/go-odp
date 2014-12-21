@@ -45,6 +45,18 @@ func (f Flags) Parse() {
 	f.FlagSet.Parse(f.args)
 }
 
+func (f Flags) CheckNArg(min int, max int) bool {
+	if f.NArg() < min {
+		return printErr("Insufficient arguments")
+	}
+
+	if f.NArg() > max {
+		return printErr("Excess arguments")
+	}
+
+	return true
+}
+
 type command func (f Flags) bool
 
 func (fcmd command) run(args []string, pos int) bool {
@@ -85,43 +97,43 @@ func main() {
 
 func createDatapath(f Flags) bool {
 	f.Parse()
+	if !f.CheckNArg(1, 1) { return false }
 
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	for _, name := range(f.Args()) {
-		_, err = dpif.CreateDatapath(name)
-		if err != nil { return printErr("%s", err) }
-	}
+	_, err = dpif.CreateDatapath(f.Arg(0))
+	if err != nil { return printErr("%s", err) }
 
 	return true
 }
 
 func deleteDatapath(f Flags) bool {
 	f.Parse()
+	if !f.CheckNArg(1, 1) { return false }
 
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	for _, name := range(f.Args()) {
-		dp, err := dpif.LookupDatapath(name)
-		if err != nil { return printErr("%s", err) }
+	name := f.Arg(0)
+	dp, err := dpif.LookupDatapath(name)
+	if err != nil { return printErr("%s", err) }
 
-		if dp == nil {
-			return printErr("Cannot find datapath \"%s\"", name);
-		}
-
-		err = dp.Delete()
-		if err != nil { return printErr("%s", err) }
+	if dp == nil {
+		return printErr("Cannot find datapath \"%s\"", name);
 	}
+
+	err = dp.Delete()
+	if err != nil { return printErr("%s", err) }
 
 	return true
 }
 
 func listDatapaths(f Flags) bool {
 	f.Parse()
+	if !f.CheckNArg(0, 0) { return false }
 
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
