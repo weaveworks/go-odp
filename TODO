@@ -1,13 +1,3 @@
-tool: create port
-
-tool: delete port
-
-tool: enumerate ports
-
-tool: check number of args in commands
-
-tool: unify dpif opening
-
 tool: flows
 
 TODOs in dpif.go
