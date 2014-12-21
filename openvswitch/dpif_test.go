@@ -106,7 +106,7 @@ func checkedDeleteDatapath(dp *Datapath, t *testing.T) {
 	if err != nil { t.Fatal(err) }
 }
 
-func TestCreatePort(t *testing.T) {
+func TestCreateVport(t *testing.T) {
 	dpif, err := NewDpif()
 	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
@@ -116,14 +116,14 @@ func TestCreatePort(t *testing.T) {
 	defer checkedDeleteDatapath(dp, t)
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
-	port, err := dp.CreatePort(name)
+	vport, err := dp.CreateVport(name)
 	if err != nil { t.Fatal(err) }
 
-	err = port.Delete()
+	err = vport.Delete()
 	if err != nil { t.Fatal(err) }
 }
 
-func TestLookupPort(t *testing.T) {
+func TestLookupVport(t *testing.T) {
 	dpif, err := NewDpif()
 	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
@@ -133,11 +133,11 @@ func TestLookupPort(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
-	port, err := dp.LookupPort(name)
+	vport, err := dp.LookupVport(name)
 	if err != nil { t.Fatal(err) }
-	if port != nil { t.Fatal("LookupPort should return nil for non-existent name") }
+	if vport != nil { t.Fatal("LookupVport should return nil for non-existent name") }
 
-	_, err = dp.CreatePort(name)
+	_, err = dp.CreateVport(name)
 	if err != nil { t.Fatal(err) }
 
 	checkedCloseDpif(dpif, t)
@@ -150,15 +150,15 @@ func TestLookupPort(t *testing.T) {
 	if dp == nil { t.Fatal("LookupDatapath returned nil") }
 	defer dp.Delete()
 
-	port, err = dp.LookupPort(name)
+	vport, err = dp.LookupVport(name)
 	if err != nil { t.Fatal(err) }
-	if port == nil { t.Fatal("LookupPort return nil") }
+	if vport == nil { t.Fatal("LookupVport return nil") }
 
-	err = port.Delete()
+	err = vport.Delete()
 	if err != nil { t.Fatal(err) }
 }
 
-func TestEnumeratePorts(t *testing.T) {
+func TestEnumerateVports(t *testing.T) {
 	dpif, err := NewDpif()
 	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
@@ -169,34 +169,34 @@ func TestEnumeratePorts(t *testing.T) {
 
 	const n = 10
 	var names [n]string
-	var ports [n]*Port
+	var vports [n]*Vport
 
 	for i := range(names) {
 		names[i] = fmt.Sprintf("test%d", rand.Intn(100000))
-		port, err := dp.CreatePort(names[i])
+		vport, err := dp.CreateVport(names[i])
 		if err != nil { t.Fatal(err) }
-		ports[i] = port
+		vports[i] = vport
 	}
 
-	name2port, err := dp.EnumeratePorts()
+	name2vport, err := dp.EnumerateVports()
 	if err != nil { t.Fatal(err) }
 	for _, name := range(names) {
-		_, ok := name2port[name]
+		_, ok := name2vport[name]
 		if !ok { t.Fatal() }
 	}
 
-	for i, port := range(ports) {
-		if port != nil {
-			port.Delete()
+	for i, vport := range(vports) {
+		if vport != nil {
+			vport.Delete()
 		}
 
-		ports[i] = nil
+		vports[i] = nil
 	}
 
-	name2port, err = dp.EnumeratePorts()
+	name2vport, err = dp.EnumerateVports()
 	if err != nil { t.Fatal(err) }
 	for _, name := range(names) {
-		_, ok := name2port[name]
+		_, ok := name2vport[name]
 		if ok { t.Fatal() }
 	}
 }

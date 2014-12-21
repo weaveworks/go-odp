@@ -87,10 +87,10 @@ var commands = subcommands {
 			"delete": command(deleteDatapath),
 		},
 	},
-	"port": subcommands {
-		"create": command(createPort),
-		"delete": command(deletePort),
-		"list": command(listPorts),
+	"vport": subcommands {
+		"create": command(createVport),
+		"delete": command(deleteVport),
+		"list": command(listVports),
 	},
 }
 
@@ -152,7 +152,7 @@ func listDatapaths(f Flags) bool {
 	return true
 }
 
-func createPort(f Flags) bool {
+func createVport(f Flags) bool {
 	f.Parse()
 	if !f.CheckNArg(2, 2) { return false }
 
@@ -163,13 +163,13 @@ func createPort(f Flags) bool {
 	dp, err := dpif.LookupDatapath(f.Arg(0))
 	if err != nil { return printErr("%s", err) }
 
-	_, err = dp.CreatePort(f.Arg(1))
+	_, err = dp.CreateVport(f.Arg(1))
 	if err != nil { return printErr("%s", err) }
 
 	return true
 }
 
-func deletePort(f Flags) bool {
+func deleteVport(f Flags) bool {
 	f.Parse()
 	if !f.CheckNArg(1, 1) { return false }
 
@@ -178,20 +178,20 @@ func deletePort(f Flags) bool {
 	defer dpif.Close()
 
 	name := f.Arg(0)
-	port, err := dpif.LookupPort(name)
+	vport, err := dpif.LookupVport(name)
 	if err != nil { return printErr("%s", err) }
 
-	if port == nil {
+	if vport == nil {
 		return printErr("Cannot find port \"%s\"", name);
 	}
 
-	err = port.Delete()
+	err = vport.Delete()
 	if err != nil { return printErr("%s", err) }
 
 	return true
 }
 
-func listPorts(f Flags) bool {
+func listVports(f Flags) bool {
 	f.Parse()
 	if !f.CheckNArg(1, 1) { return false }
 
@@ -202,8 +202,8 @@ func listPorts(f Flags) bool {
 	dp, err := dpif.LookupDatapath(f.Arg(0))
 	if err != nil { return printErr("%s", err) }
 
-	ports, err := dp.EnumeratePorts()
-	for name := range(ports) {
+	vports, err := dp.EnumerateVports()
+	for name := range(vports) {
 		fmt.Printf("%s\n", name)
 	}
 

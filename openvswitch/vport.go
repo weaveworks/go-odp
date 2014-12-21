@@ -4,13 +4,13 @@ import (
 	"syscall"
 )
 
-type portInfo struct {
+type vportInfo struct {
 	portNo uint32
 	dpIfIndex int32
 	name string
 }
 
-func (dpif *Dpif) parsePortInfo(msg *NlMsgParser) (res portInfo, err error) {
+func (dpif *Dpif) parseVportInfo(msg *NlMsgParser) (res vportInfo, err error) {
 	_, err = msg.ExpectNlMsghdr(dpif.familyIds[VPORT])
 	if err != nil { return }
 
@@ -31,13 +31,13 @@ func (dpif *Dpif) parsePortInfo(msg *NlMsgParser) (res portInfo, err error) {
 	return
 }
 
-type Port struct {
+type Vport struct {
 	dpif *Dpif
 	portNo uint32
 	dpIfIndex int32
 }
 
-func (dp *Datapath) CreatePort(name string) (*Port, error) {
+func (dp *Datapath) CreateVport(name string) (*Vport, error) {
 	dpif := dp.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
@@ -52,15 +52,15 @@ func (dp *Datapath) CreatePort(name string) (*Port, error) {
 		return nil, err
 	}
 
-	pi, err := dpif.parsePortInfo(resp)
+	pi, err := dpif.parseVportInfo(resp)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Port{dpif: dpif, portNo: pi.portNo, dpIfIndex: pi.dpIfIndex}, nil
+	return &Vport{dpif: dpif, portNo: pi.portNo, dpIfIndex: pi.dpIfIndex}, nil
 }
 
-func lookupPort(dpif *Dpif, dpifindex int32, name string) (*Port, error) {
+func lookupVport(dpif *Dpif, dpifindex int32, name string) (*Vport, error) {
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
 	req.putOvsHeader(dpifindex)
@@ -69,41 +69,41 @@ func lookupPort(dpif *Dpif, dpifindex int32, name string) (*Port, error) {
 	resp, err := dpif.sock.Request(req)
 	if err != nil {
 		if err == NetlinkError(syscall.ENODEV) {
-			// no port with the given name
+			// no vport with the given name
 			return nil, nil
 		}
 
 		return nil, err
 	}
 
-	pi, err := dpif.parsePortInfo(resp)
+	pi, err := dpif.parseVportInfo(resp)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Port{dpif: dpif, portNo: pi.portNo, dpIfIndex: pi.dpIfIndex}, nil
+	return &Vport{dpif: dpif, portNo: pi.portNo, dpIfIndex: pi.dpIfIndex}, nil
 }
 
-func (dpif *Dpif) LookupPort(name string) (*Port, error) {
-	return lookupPort(dpif, 0, name)
+func (dpif *Dpif) LookupVport(name string) (*Vport, error) {
+	return lookupVport(dpif, 0, name)
 }
 
-func (dp *Datapath) LookupPort(name string) (*Port, error) {
-	return lookupPort(dp.dpif, dp.ifindex, name)
+func (dp *Datapath) LookupVport(name string) (*Vport, error) {
+	return lookupVport(dp.dpif, dp.ifindex, name)
 }
 
-func (dp *Datapath) EnumeratePorts() (map[string]*Port, error) {
+func (dp *Datapath) EnumerateVports() (map[string]*Vport, error) {
 	dpif := dp.dpif
-	res := make(map[string]*Port)
+	res := make(map[string]*Vport)
 
 	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
 	req.putOvsHeader(dp.ifindex)
 
 	consumer := func (resp *NlMsgParser) error {
-		pi, err := dpif.parsePortInfo(resp)
+		pi, err := dpif.parseVportInfo(resp)
 		if err != nil {	return err }
-		res[pi.name] = &Port{dpif: dpif, portNo: pi.portNo}
+		res[pi.name] = &Vport{dpif: dpif, portNo: pi.portNo}
 		return nil
 	}
 
@@ -115,18 +115,18 @@ func (dp *Datapath) EnumeratePorts() (map[string]*Port, error) {
 	return res, nil
 }
 
-func (port *Port) Delete() error {
-	dpif := port.dpif
+func (vport *Vport) Delete() error {
+	dpif := vport.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_DEL, OVS_VPORT_VERSION)
-	req.putOvsHeader(port.dpIfIndex)
-	req.PutUint32Attr(OVS_VPORT_ATTR_PORT_NO, port.portNo)
+	req.putOvsHeader(vport.dpIfIndex)
+	req.PutUint32Attr(OVS_VPORT_ATTR_PORT_NO, vport.portNo)
 
 	_, err := dpif.sock.Request(req)
 	if err != nil { return err }
 
-	port.dpif = nil
-	port.portNo = 0
+	vport.dpif = nil
+	vport.portNo = 0
 	return nil
 }
