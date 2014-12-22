@@ -199,10 +199,12 @@ func deleteVport(f Flags) bool {
 
 	name := f.Arg(0)
 	vport, err := dpif.LookupVport(name)
-	if err != nil { return printErr("%s", err) }
+	if err != nil {
+		if openvswitch.IsNoSuchVportError(err) {
+			return printErr("Cannot find port \"%s\"", name);
+		}
 
-	if vport == nil {
-		return printErr("Cannot find port \"%s\"", name);
+		return printErr("%s", err)
 	}
 
 	err = vport.Delete()

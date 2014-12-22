@@ -134,8 +134,7 @@ func TestLookupVport(t *testing.T) {
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
 	vport, err := dp.LookupVport(name)
-	if err != nil { t.Fatal(err) }
-	if vport != nil { t.Fatal("LookupVport should return nil for non-existent name") }
+	if !IsNoSuchVportError(err) { t.Fatal(err) }
 
 	_, err = dp.CreateVport(name, INTERNAL_VPORT_SPEC)
 	if err != nil { t.Fatal(err) }
@@ -152,7 +151,6 @@ func TestLookupVport(t *testing.T) {
 
 	vport, err = dp.LookupVport(name)
 	if err != nil { t.Fatal(err) }
-	if vport == nil { t.Fatal("LookupVport return nil") }
 
 	err = vport.Delete()
 	if err != nil { t.Fatal(err) }
@@ -167,15 +165,15 @@ func TestEnumerateVports(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	defer checkedDeleteDatapath(dp, t)
 
-	const n = 10
-	var names [n]string
-	var vports [n]*Vport
+	var names []string
+	var vports []VportHandle
 
-	for i := range(names) {
-		names[i] = fmt.Sprintf("test%d", rand.Intn(100000))
-		vport, err := dp.CreateVport(names[i], INTERNAL_VPORT_SPEC)
+	for i := 0; i < 10; i++ {
+		name := fmt.Sprintf("test%d", rand.Intn(100000))
+		vport, err := dp.CreateVport(name, INTERNAL_VPORT_SPEC)
 		if err != nil { t.Fatal(err) }
-		vports[i] = vport
+		names = append(names, name)
+		vports = append(vports, vport)
 	}
 
 	name2vport, err := dp.EnumerateVports()
@@ -185,12 +183,8 @@ func TestEnumerateVports(t *testing.T) {
 		if !ok { t.Fatal() }
 	}
 
-	for i, vport := range(vports) {
-		if vport != nil {
-			vport.Delete()
-		}
-
-		vports[i] = nil
+	for _, vport := range(vports) {
+		vport.Delete()
 	}
 
 	name2vport, err = dp.EnumerateVports()
