@@ -42,32 +42,31 @@ type Flags struct {
 	args []string
 }
 
-func (f Flags) Parse() {
+func (f Flags) Parse() bool {
 	f.FlagSet.Parse(f.args)
-}
-
-func (f Flags) CheckNArg(min int, max int) bool {
-	if f.NArg() < min {
-		return printErr("Insufficient arguments")
-	}
-
-	if f.NArg() > max {
-		return printErr("Excess arguments")
-	}
-
+	if f.NArg() > 0 { return printErr("Excess arguments") }
 	return true
 }
 
-type command func (f Flags) bool
 
-func (fcmd command) run(args []string, pos int) bool {
+type command struct {
+	cmd func ([]string, Flags) bool
+	fixedArgs int
+}
+
+func (cmd command) run(args []string, pos int) bool {
+	if len(args) < pos + cmd.fixedArgs {
+		return printErr("Insufficient arguments")
+	}
+
 	f := flag.NewFlagSet(strings.Join(args[:pos], " "), flag.ExitOnError)
-	return fcmd(Flags{f, args[pos:]})
+	n := pos + cmd.fixedArgs
+	return cmd.cmd(args[pos:n], Flags{f, args[n:]})
 }
 
 
 type possibleSubcommands struct {
-	command command
+	command commandDispatch
 	subcommands subcommands
 }
 
@@ -82,24 +81,24 @@ func (cmds possibleSubcommands) run(args []string, pos int) bool {
 
 var commands = subcommands {
 	"datapath": possibleSubcommands {
-		listDatapaths,
+		command{listDatapaths, 0},
 		subcommands {
-			"create": command(createDatapath),
-			"delete": command(deleteDatapath),
+			"create": command{createDatapath, 1},
+			"delete": command{deleteDatapath, 1},
 		},
 	},
 	"vport": subcommands {
 		"create": subcommands {
-			"internal": command(createInternalVport),
-			"vxlan" : command(createVxlanVport),
+			"internal": command{createInternalVport, 2},
+			"vxlan" : command{createVxlanVport, 2},
 		},
-		"delete": command(deleteVport),
-		"list": command(listVports),
+		"delete": command{deleteVport, 1},
+		"list": command{listVports, 1},
 	},
 	"flow": subcommands {
-		"create": command(createFlow),
-		"delete": command(deleteFlow),
-		"list": command(listFlows),
+		"create": command{createFlow, 1},
+		"delete": command{deleteFlow, 1},
+		"list": command{listFlows, 1},
 	},
 }
 
@@ -109,34 +108,31 @@ func main() {
 	}
 }
 
-func createDatapath(f Flags) bool {
-	f.Parse()
-	if !f.CheckNArg(1, 1) { return false }
+func createDatapath(args []string, f Flags) bool {
+	if !f.Parse() { return false }
 
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	_, err = dpif.CreateDatapath(f.Arg(0))
+	_, err = dpif.CreateDatapath(args[0])
 	if err != nil { return printErr("%s", err) }
 
 	return true
 }
 
-func deleteDatapath(f Flags) bool {
-	f.Parse()
-	if !f.CheckNArg(1, 1) { return false }
+func deleteDatapath(args []string, f Flags) bool {
+	if !f.Parse() { return false }
 
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	name := f.Arg(0)
-	dp, err := dpif.LookupDatapath(name)
+	dp, err := dpif.LookupDatapath(args[0])
 	if err != nil { return printErr("%s", err) }
 
 	if openvswitch.IsNoSuchDatapathError(err) {
-		return printErr("Cannot find datapath \"%s\"", name);
+		return printErr("Cannot find datapath \"%s\"", args[0]);
 	}
 
 	err = dp.Delete()
@@ -145,9 +141,8 @@ func deleteDatapath(f Flags) bool {
 	return true
 }
 
-func listDatapaths(f Flags) bool {
-	f.Parse()
-	if !f.CheckNArg(0, 0) { return false }
+func listDatapaths(_ []string, f Flags) bool {
+	if !f.Parse() { return false }
 
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
@@ -161,24 +156,22 @@ func listDatapaths(f Flags) bool {
 	return true
 }
 
-func createInternalVport(f Flags) bool {
-	f.Parse()
-	if !f.CheckNArg(2, 2) { return false }
-	return createVport(f.Arg(0), openvswitch.NewInternalVportSpec(f.Arg(1)))
+func createInternalVport(args []string, f Flags) bool {
+	if !f.Parse() { return false }
+	return createVport(args[0], openvswitch.NewInternalVportSpec(args[1]))
 }
 
-func createVxlanVport(f Flags) bool {
+func createVxlanVport(args []string, f Flags) bool {
 	var destPort uint
 	// default taken from ovs/lib/netdev-vport.c
 	f.UintVar(&destPort, "destport", 4789, "destination UDP port number")
-	f.Parse()
-	if !f.CheckNArg(2, 2) { return false }
+	if !f.Parse() { return false }
 
 	if destPort > 65535 {
 		return printErr("destport too large")
 	}
 
-	return createVport(f.Arg(0), openvswitch.NewVxlanVportSpec(f.Arg(1), uint16(destPort)))
+	return createVport(args[0], openvswitch.NewVxlanVportSpec(args[1], uint16(destPort)))
 }
 
 func createVport(dpname string, spec openvswitch.VportSpec) bool {
@@ -195,19 +188,17 @@ func createVport(dpname string, spec openvswitch.VportSpec) bool {
 	return true
 }
 
-func deleteVport(f Flags) bool {
-	f.Parse()
-	if !f.CheckNArg(1, 1) { return false }
+func deleteVport(args []string, f Flags) bool {
+	if !f.Parse() { return false }
 
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	name := f.Arg(0)
-	vport, err := dpif.LookupVport(name)
+	vport, err := dpif.LookupVport(args[0])
 	if err != nil {
 		if openvswitch.IsNoSuchVportError(err) {
-			return printErr("Cannot find port \"%s\"", name);
+			return printErr("Cannot find port \"%s\"", args[0]);
 		}
 
 		return printErr("%s", err)
@@ -219,15 +210,14 @@ func deleteVport(f Flags) bool {
 	return true
 }
 
-func listVports(f Flags) bool {
-	f.Parse()
-	if !f.CheckNArg(1, 1) { return false }
+func listVports(args []string, f Flags) bool {
+	if !f.Parse() { return false }
 
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	dp, err := dpif.LookupDatapath(f.Arg(0))
+	dp, err := dpif.LookupDatapath(args[0])
 	if err != nil { return printErr("%s", err) }
 
 	vports, err := dp.EnumerateVports()
@@ -266,8 +256,7 @@ func flagsToFlowSpec(f Flags) (openvswitch.FlowSpec, bool) {
 	var ethSrc, ethDst string
 	f.StringVar(&ethSrc, "ethsrc", "", "ethernet source MAC")
 	f.StringVar(&ethDst, "ethdst", "", "ethernet destination MAC")
-	f.Parse()
-	if !f.CheckNArg(1, 1) { return flow, false }
+	if !f.Parse() { return flow, false }
 
 	if (ethSrc != "") != (ethDst != "") {
 		return flow, printErr("Must supply both 'ethsrc' and 'ethdst' options")
@@ -285,7 +274,7 @@ func flagsToFlowSpec(f Flags) (openvswitch.FlowSpec, bool) {
 	return flow, true
 }
 
-func createFlow(f Flags) bool {
+func createFlow(args []string, f Flags) bool {
 	flow, ok := flagsToFlowSpec(f)
 	if !ok { return false }
 
@@ -293,7 +282,7 @@ func createFlow(f Flags) bool {
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	dp, err := dpif.LookupDatapath(f.Arg(0))
+	dp, err := dpif.LookupDatapath(args[0])
 	if err != nil { return printErr("%s", err) }
 
 	err = dp.CreateFlow(flow)
@@ -302,7 +291,7 @@ func createFlow(f Flags) bool {
 	return true
 }
 
-func deleteFlow(f Flags) bool {
+func deleteFlow(args []string, f Flags) bool {
 	flow, ok := flagsToFlowSpec(f)
 	if !ok { return false }
 
@@ -310,7 +299,7 @@ func deleteFlow(f Flags) bool {
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	dp, err := dpif.LookupDatapath(f.Arg(0))
+	dp, err := dpif.LookupDatapath(args[0])
 	if err != nil { return printErr("%s", err) }
 
 	err = dp.DeleteFlow(flow)
@@ -319,22 +308,21 @@ func deleteFlow(f Flags) bool {
 	return true
 }
 
-func listFlows(f Flags) bool {
-	f.Parse()
-	if !f.CheckNArg(1, 1) { return false }
+func listFlows(args []string, f Flags) bool {
+	if !f.Parse() { return false }
 
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
-	dp, err := dpif.LookupDatapath(f.Arg(0))
+	dp, err := dpif.LookupDatapath(args[0])
 	if err != nil { return printErr("%s", err) }
 
 	flows, err := dp.EnumerateFlows()
 	if err != nil { return printErr("%s", err) }
 
 	for _, flow := range(flows) {
-		if !printFlow(f.Arg(0), flow) { return false }
+		if !printFlow(args[0], flow) { return false }
 	}
 
 	return true

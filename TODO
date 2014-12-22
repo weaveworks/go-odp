@@ -1,8 +1,6 @@
-tool: args before flags
+tool: flow actions
 
 too: elaborate error messages
-
-tool: flow actions
 
 tool: support for listing all ports in all datapaths
 
