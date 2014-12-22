@@ -2,15 +2,33 @@ package openvswitch
 
 import (
 	"syscall"
+	"fmt"
 )
 
 type VportSpec interface {
+	TypeName() string
+	Name() string
 	typeId() uint32
 	optionNlAttrs(req *NlMsgBuilder)
 }
 
+type VportSpecBase struct {
+	name string
+}
+
+func (v VportSpecBase) Name() string {
+	return v.name
+}
+
+
 type SimpleVportSpec struct {
+	VportSpecBase
 	typ uint32
+	typeName string
+}
+
+func (s SimpleVportSpec) TypeName() string {
+	return s.typeName
 }
 
 func (s SimpleVportSpec) typeId() uint32 {
@@ -20,11 +38,21 @@ func (s SimpleVportSpec) typeId() uint32 {
 func (SimpleVportSpec) optionNlAttrs(req *NlMsgBuilder) {
 }
 
-var INTERNAL_VPORT_SPEC VportSpec = SimpleVportSpec{OVS_VPORT_TYPE_INTERNAL}
-
+func NewInternalVportSpec(name string) VportSpec {
+	return SimpleVportSpec{
+		VportSpecBase{name},
+		OVS_VPORT_TYPE_INTERNAL,
+		"internal",
+	}
+}
 
 type VxlanVportSpec struct {
-	destPort uint16
+	VportSpecBase
+	DestPort uint16
+}
+
+func (VxlanVportSpec) TypeName() string {
+	return "vxlan"
 }
 
 func (VxlanVportSpec) typeId() uint32 {
@@ -32,38 +60,18 @@ func (VxlanVportSpec) typeId() uint32 {
 }
 
 func (v VxlanVportSpec) optionNlAttrs(req *NlMsgBuilder) {
-	req.PutUint16Attr(OVS_TUNNEL_ATTR_DST_PORT, v.destPort)
+	req.PutUint16Attr(OVS_TUNNEL_ATTR_DST_PORT, v.DestPort)
 }
 
-func NewVxlanVportSpec(destPort uint16) VportSpec {
-	return VxlanVportSpec{destPort}
+func NewVxlanVportSpec(name string, destPort uint16) VportSpec {
+	return VxlanVportSpec{VportSpecBase{name}, destPort}
 }
 
-type vportInfo struct {
-	portNo uint32
-	dpIfIndex int32
-	name string
-}
+func parseVxlanVportSpec(name string, opts Attrs) (VportSpec, error) {
+	destPort, err := opts.GetUint16(OVS_TUNNEL_ATTR_DST_PORT)
+	if err != nil { return nil, err }
 
-func (dpif *Dpif) parseVportInfo(msg *NlMsgParser) (res vportInfo, err error) {
-	_, err = msg.ExpectNlMsghdr(dpif.familyIds[VPORT])
-	if err != nil { return }
-
-	_, err = msg.ExpectGenlMsghdr(OVS_VPORT_CMD_NEW)
-	if err != nil { return }
-
-	ovshdr, err := msg.takeOvsHeader()
-	if err != nil { return }
-	res.dpIfIndex = ovshdr.DpIfIndex
-
-	attrs, err := msg.TakeAttrs()
-	if err != nil { return }
-
-	res.portNo, err = attrs.GetUint32(OVS_VPORT_ATTR_PORT_NO)
-	if err != nil { return }
-
-	res.name, err = attrs.GetString(OVS_VPORT_ATTR_NAME)
-	return
+	return VxlanVportSpec{VportSpecBase{name}, destPort}, nil
 }
 
 type VportHandle struct {
@@ -72,13 +80,58 @@ type VportHandle struct {
 	dpIfIndex int32
 }
 
-func (dp *Datapath) CreateVport(name string, spec VportSpec) (VportHandle, error) {
+func (dpif *Dpif) parseVport(msg *NlMsgParser) (h VportHandle, s VportSpec, err error) {
+	h.dpif = dpif
+
+	_, err = msg.ExpectNlMsghdr(dpif.familyIds[VPORT])
+	if err != nil { return }
+
+	_, err = msg.ExpectGenlMsghdr(OVS_VPORT_CMD_NEW)
+	if err != nil { return }
+
+	ovshdr, err := msg.takeOvsHeader()
+	if err != nil { return }
+	h.dpIfIndex = ovshdr.DpIfIndex
+
+	attrs, err := msg.TakeAttrs()
+	if err != nil { return }
+
+	h.portNo, err = attrs.GetUint32(OVS_VPORT_ATTR_PORT_NO)
+	if err != nil { return }
+
+	typ, err := attrs.GetUint32(OVS_VPORT_ATTR_TYPE)
+	if err != nil { return }
+
+	name, err := attrs.GetString(OVS_VPORT_ATTR_NAME)
+	if err != nil { return }
+
+	opts, err := attrs.GetNestedAttrs(OVS_VPORT_ATTR_OPTIONS, true)
+	if err != nil { return }
+	if opts == nil { opts = make(Attrs) }
+
+	switch (typ) {
+	case OVS_VPORT_TYPE_INTERNAL:
+		s = NewInternalVportSpec(name)
+		break
+
+	case OVS_VPORT_TYPE_VXLAN:
+		s, err = parseVxlanVportSpec(name, opts)
+		break
+
+	default:
+		err = fmt.Errorf("unsupported vport type %d", typ)
+	}
+
+	return
+}
+
+func (dp *Datapath) CreateVport(spec VportSpec) (VportHandle, error) {
 	dpif := dp.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_NEW, OVS_VPORT_VERSION)
 	req.putOvsHeader(dp.ifindex)
-	req.PutStringAttr(OVS_VPORT_ATTR_NAME, name)
+	req.PutStringAttr(OVS_VPORT_ATTR_NAME, spec.Name())
 	req.PutUint32Attr(OVS_VPORT_ATTR_TYPE, spec.typeId())
 	req.PutNestedAttrs(OVS_VPORT_ATTR_OPTIONS, func () {
 		spec.optionNlAttrs(req)
@@ -90,19 +143,24 @@ func (dp *Datapath) CreateVport(name string, spec VportSpec) (VportHandle, error
 		return VportHandle{}, err
 	}
 
-	pi, err := dpif.parseVportInfo(resp)
+	h, _, err := dpif.parseVport(resp)
 	if err != nil {
 		return VportHandle{}, err
 	}
 
-	return VportHandle{dpif: dpif, portNo: pi.portNo, dpIfIndex: pi.dpIfIndex}, nil
+	return h, nil
 }
 
 func IsNoSuchVportError(err error) bool {
 	return err == NetlinkError(syscall.ENODEV)
 }
 
-func lookupVport(dpif *Dpif, dpifindex int32, name string) (VportHandle, error) {
+type Vport struct {
+	Handle VportHandle
+	Spec VportSpec
+}
+
+func lookupVport(dpif *Dpif, dpifindex int32, name string) (Vport, error) {
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
 	req.putOvsHeader(dpifindex)
@@ -110,37 +168,37 @@ func lookupVport(dpif *Dpif, dpifindex int32, name string) (VportHandle, error) 
 
 	resp, err := dpif.sock.Request(req)
 	if err != nil {
-		return VportHandle{}, err
+		return Vport{}, err
 	}
 
-	pi, err := dpif.parseVportInfo(resp)
+	h, s, err := dpif.parseVport(resp)
 	if err != nil {
-		return VportHandle{}, err
+		return Vport{}, err
 	}
 
-	return VportHandle{dpif: dpif, portNo: pi.portNo, dpIfIndex: pi.dpIfIndex}, nil
+	return Vport{h, s}, nil
 }
 
-func (dpif *Dpif) LookupVport(name string) (VportHandle, error) {
+func (dpif *Dpif) LookupVport(name string) (Vport, error) {
 	return lookupVport(dpif, 0, name)
 }
 
-func (dp *Datapath) LookupVport(name string) (VportHandle, error) {
+func (dp *Datapath) LookupVport(name string) (Vport, error) {
 	return lookupVport(dp.dpif, dp.ifindex, name)
 }
 
-func (dp *Datapath) EnumerateVports() (map[string]VportHandle, error) {
+func (dp *Datapath) EnumerateVports() ([]Vport, error) {
 	dpif := dp.dpif
-	res := make(map[string]VportHandle)
+	res := make([]Vport, 0)
 
 	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[VPORT])
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
 	req.putOvsHeader(dp.ifindex)
 
 	consumer := func (resp *NlMsgParser) error {
-		pi, err := dpif.parseVportInfo(resp)
+		h, spec, err := dpif.parseVport(resp)
 		if err != nil {	return err }
-		res[pi.name] = VportHandle{dpif: dpif, portNo: pi.portNo}
+		res = append(res, Vport{h, spec})
 		return nil
 	}
 
