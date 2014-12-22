@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"flag"
+	"net"
 	"github.com/dpw/go-openvswitch/openvswitch"
 )
 
@@ -94,6 +95,11 @@ var commands = subcommands {
 		},
 		"delete": command(deleteVport),
 		"list": command(listVports),
+	},
+	"flow": subcommands {
+		"create": command(createFlow),
+		"delete": command(deleteFlow),
+		"list": command(listFlows),
 	},
 }
 
@@ -238,5 +244,123 @@ func listVports(f Flags) bool {
 		fmt.Printf("\n")
 	}
 
+	return true
+}
+
+func parseMAC(s string) (mac [6]byte, err error) {
+	hwa, err := net.ParseMAC(s)
+	if err != nil { return }
+
+	if len(hwa) != 6 {
+		err = fmt.Errorf("invalid MAC address: %s", s)
+		return
+	}
+
+	copy(mac[:], hwa)
+	return
+}
+
+func flagsToFlowSpec(f Flags) (openvswitch.FlowSpec, bool) {
+	flow := openvswitch.NewFlowSpec()
+
+	var ethSrc, ethDst string
+	f.StringVar(&ethSrc, "ethsrc", "", "ethernet source MAC")
+	f.StringVar(&ethDst, "ethdst", "", "ethernet destination MAC")
+	f.Parse()
+	if !f.CheckNArg(1, 1) { return flow, false }
+
+	if (ethSrc != "") != (ethDst != "") {
+		return flow, printErr("Must supply both 'ethsrc' and 'ethdst' options")
+	}
+
+	if ethSrc != "" {
+		src, err := parseMAC(ethSrc)
+		if err != nil { return flow, printErr("%s", err) }
+		dst, err := parseMAC(ethDst)
+		if err != nil { return flow, printErr("%s", err) }
+
+		flow.AddKey(openvswitch.NewEthernetFlowKey(src, dst))
+	}
+
+	return flow, true
+}
+
+func createFlow(f Flags) bool {
+	flow, ok := flagsToFlowSpec(f)
+	if !ok { return false }
+
+	dpif, err := openvswitch.NewDpif()
+	if err != nil { return printErr("%s", err) }
+	defer dpif.Close()
+
+	dp, err := dpif.LookupDatapath(f.Arg(0))
+	if err != nil { return printErr("%s", err) }
+
+	err = dp.CreateFlow(flow)
+	if err != nil { return printErr("%s", err) }
+
+	return true
+}
+
+func deleteFlow(f Flags) bool {
+	flow, ok := flagsToFlowSpec(f)
+	if !ok { return false }
+
+	dpif, err := openvswitch.NewDpif()
+	if err != nil { return printErr("%s", err) }
+	defer dpif.Close()
+
+	dp, err := dpif.LookupDatapath(f.Arg(0))
+	if err != nil { return printErr("%s", err) }
+
+	err = dp.DeleteFlow(flow)
+	if err != nil { return printErr("%s", err) }
+
+	return true
+}
+
+func listFlows(f Flags) bool {
+	f.Parse()
+	if !f.CheckNArg(1, 1) { return false }
+
+	dpif, err := openvswitch.NewDpif()
+	if err != nil { return printErr("%s", err) }
+	defer dpif.Close()
+
+	dp, err := dpif.LookupDatapath(f.Arg(0))
+	if err != nil { return printErr("%s", err) }
+
+	flows, err := dp.EnumerateFlows()
+	if err != nil { return printErr("%s", err) }
+
+	for _, flow := range(flows) {
+		if !printFlow(f.Arg(0), flow) { return false }
+	}
+
+	return true
+}
+
+func printFlow(dpname string, flow openvswitch.FlowSpec) bool {
+	os.Stdout.WriteString(dpname)
+
+	for _, fk := range(flow.FlowKeys) {
+		if fk.Ignored() { continue }
+
+		switch fk := fk.(type) {
+		case openvswitch.EthernetFlowKey:
+			s := fk.EthSrc()
+			d := fk.EthDst()
+			fmt.Printf(" --ethsrc=%s --ethdst=%s",
+				net.HardwareAddr(s[:]),
+				net.HardwareAddr(d[:]))
+			break
+
+		default:
+			fmt.Printf("%v", fk)
+			break
+		}
+	}
+
+	os.Stdout.WriteString("\n")
 	return true
 }
