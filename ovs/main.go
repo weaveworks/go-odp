@@ -129,7 +129,7 @@ func deleteDatapath(f Flags) bool {
 	dp, err := dpif.LookupDatapath(name)
 	if err != nil { return printErr("%s", err) }
 
-	if dp == nil {
+	if openvswitch.IsNoSuchDatapathError(err) {
 		return printErr("Cannot find datapath \"%s\"", name);
 	}
 

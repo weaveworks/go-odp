@@ -37,8 +37,7 @@ func TestLookupDatapath(t *testing.T) {
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
 	dp, err := dpif.LookupDatapath(name)
-	if err != nil { t.Fatal(err) }
-	if dp != nil { t.Fatal("LookupDatapath should return nil for non-existent name") }
+	if !IsNoSuchDatapathError(err) { t.Fatal(err) }
 
 	_, err = dpif.CreateDatapath(name)
 	if err != nil { t.Fatal(err) }
@@ -50,7 +49,6 @@ func TestLookupDatapath(t *testing.T) {
 
 	dp, err = dpif.LookupDatapath(name)
 	if err != nil { t.Fatal(err) }
-	if dp == nil { t.Fatal("LookupDatapath returned nil") }
 
 	err = dp.Delete()
 	if err != nil { t.Fatal(err) }
@@ -61,27 +59,21 @@ func TestEnumerateDatapaths(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	defer checkedCloseDpif(dpif, t)
 
-	const n = 10
-	var names [n]string
-	var dps [n]*Datapath
+	var names []string
+	var dps []DatapathHandle
 
 	cleanup := func () {
-		for i, dp := range(dps) {
-			if dp != nil {
-				dp.Delete()
-			}
-
-			dps[i] = nil
-		}
+		for _, dp := range(dps) { dp.Delete() }
 	}
 
 	defer cleanup()
 
-	for i := range(names) {
-		names[i] = fmt.Sprintf("test%d", rand.Intn(100000))
-		dp, err := dpif.CreateDatapath(names[i])
+	for i := 0; i < 10; i++ {
+		name := fmt.Sprintf("test%d", rand.Intn(100000))
+		dp, err := dpif.CreateDatapath(name)
 		if err != nil { t.Fatal(err) }
-		dps[i] = dp
+		names = append(names, name)
+		dps = append(dps, dp)
 	}
 
 	name2dp, err := dpif.EnumerateDatapaths()
@@ -101,7 +93,7 @@ func TestEnumerateDatapaths(t *testing.T) {
 	}
 }
 
-func checkedDeleteDatapath(dp *Datapath, t *testing.T) {
+func checkedDeleteDatapath(dp DatapathHandle, t *testing.T) {
 	err := dp.Delete()
 	if err != nil { t.Fatal(err) }
 }
@@ -146,7 +138,6 @@ func TestLookupVport(t *testing.T) {
 
 	dp, err = dpif.LookupDatapath(dpname)
 	if err != nil { t.Fatal(err) }
-	if dp == nil { t.Fatal("LookupDatapath returned nil") }
 	defer dp.Delete()
 
 	vport, err = dp.LookupVport(name)

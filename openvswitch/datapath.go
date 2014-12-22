@@ -27,12 +27,12 @@ func (dpif *Dpif) parseDatapathInfo(msg *NlMsgParser) (res datapathInfo, err err
 	return
 }
 
-type Datapath struct {
+type DatapathHandle struct {
 	dpif *Dpif
 	ifindex int32
 }
 
-func (dpif *Dpif) CreateDatapath(name string) (*Datapath, error) {
+func (dpif *Dpif) CreateDatapath(name string) (DatapathHandle, error) {
 	var features uint32 = OVS_DP_F_UNALIGNED | OVS_DP_F_VPORT_PIDS
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[DATAPATH])
@@ -44,18 +44,18 @@ func (dpif *Dpif) CreateDatapath(name string) (*Datapath, error) {
 
 	resp, err := dpif.sock.Request(req)
 	if err != nil {
-		return nil, err
+		return DatapathHandle{}, err
 	}
 
 	dpi, err := dpif.parseDatapathInfo(resp)
 	if err != nil {
-		return nil, err
+		return DatapathHandle{}, err
 	}
 
-	return &Datapath{dpif: dpif, ifindex: dpi.ifindex}, nil
+	return DatapathHandle{dpif: dpif, ifindex: dpi.ifindex}, nil
 }
 
-func (dpif *Dpif) LookupDatapath(name string) (*Datapath, error) {
+func (dpif *Dpif) LookupDatapath(name string) (DatapathHandle, error) {
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[DATAPATH])
 	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
 	req.putOvsHeader(0)
@@ -63,24 +63,23 @@ func (dpif *Dpif) LookupDatapath(name string) (*Datapath, error) {
 
 	resp, err := dpif.sock.Request(req)
 	if err != nil {
-		if err == NetlinkError(syscall.ENODEV) {
-			// no datapath with the given name
-			return nil, nil
-		}
-
-		return nil, err
+		return DatapathHandle{}, err
 	}
 
 	dpi, err := dpif.parseDatapathInfo(resp)
 	if err != nil {
-		return nil, err
+		return DatapathHandle{}, err
 	}
 
-	return &Datapath{dpif: dpif, ifindex: dpi.ifindex}, nil
+	return DatapathHandle{dpif: dpif, ifindex: dpi.ifindex}, nil
 }
 
-func (dpif *Dpif) EnumerateDatapaths() (map[string]*Datapath, error) {
-	res := make(map[string]*Datapath)
+func IsNoSuchDatapathError(err error) bool {
+	return err == NetlinkError(syscall.ENODEV)
+}
+
+func (dpif *Dpif) EnumerateDatapaths() (map[string]DatapathHandle, error) {
+	res := make(map[string]DatapathHandle)
 
 	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[DATAPATH])
 	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
@@ -89,7 +88,7 @@ func (dpif *Dpif) EnumerateDatapaths() (map[string]*Datapath, error) {
 	consumer := func (resp *NlMsgParser) error {
 		dpi, err := dpif.parseDatapathInfo(resp)
 		if err != nil {	return err }
-		res[dpi.name] = &Datapath{dpif: dpif, ifindex: dpi.ifindex}
+		res[dpi.name] = DatapathHandle{dpif: dpif, ifindex: dpi.ifindex}
 		return nil
 	}
 
@@ -101,7 +100,7 @@ func (dpif *Dpif) EnumerateDatapaths() (map[string]*Datapath, error) {
 	return res, nil
 }
 
-func (dp *Datapath) Delete() error {
+func (dp DatapathHandle) Delete() error {
 	req := NewNlMsgBuilder(RequestFlags, dp.dpif.familyIds[DATAPATH])
 	req.PutGenlMsghdr(OVS_DP_CMD_DEL, OVS_DATAPATH_VERSION)
 	req.putOvsHeader(dp.ifindex)

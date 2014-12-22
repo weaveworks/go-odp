@@ -125,7 +125,7 @@ func (dpif *Dpif) parseVport(msg *NlMsgParser) (h VportHandle, s VportSpec, err 
 	return
 }
 
-func (dp *Datapath) CreateVport(spec VportSpec) (VportHandle, error) {
+func (dp DatapathHandle) CreateVport(spec VportSpec) (VportHandle, error) {
 	dpif := dp.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
@@ -183,11 +183,11 @@ func (dpif *Dpif) LookupVport(name string) (Vport, error) {
 	return lookupVport(dpif, 0, name)
 }
 
-func (dp *Datapath) LookupVport(name string) (Vport, error) {
+func (dp DatapathHandle) LookupVport(name string) (Vport, error) {
 	return lookupVport(dp.dpif, dp.ifindex, name)
 }
 
-func (dp *Datapath) EnumerateVports() ([]Vport, error) {
+func (dp DatapathHandle) EnumerateVports() ([]Vport, error) {
 	dpif := dp.dpif
 	res := make([]Vport, 0)
 

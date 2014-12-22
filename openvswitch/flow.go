@@ -355,7 +355,7 @@ var flowKeyParsers = FlowKeyParsers {
 	},
 }
 
-func (dp *Datapath) checkOvsHeader(msg *NlMsgParser) error {
+func (dp DatapathHandle) checkOvsHeader(msg *NlMsgParser) error {
 	ovshdr, err := msg.takeOvsHeader()
 	if err != nil { return err }
 
@@ -366,7 +366,7 @@ func (dp *Datapath) checkOvsHeader(msg *NlMsgParser) error {
 	return nil
 }
 
-func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
+func (dp DatapathHandle) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 	f := FlowSpec{}
 
 	_, err := msg.ExpectNlMsghdr(dp.dpif.familyIds[FLOW])
@@ -393,7 +393,7 @@ func (dp *Datapath) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 	return f, nil
 }
 
-func (dp *Datapath) CreateFlow(f FlowSpec) error {
+func (dp DatapathHandle) CreateFlow(f FlowSpec) error {
 	dpif := dp.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[FLOW])
@@ -412,7 +412,7 @@ func (dp *Datapath) CreateFlow(f FlowSpec) error {
 type NoSuchFlowError struct {}
 func (NoSuchFlowError) Error() string {	return "no such flow" }
 
-func (dp *Datapath) DeleteFlow(f FlowSpec) error {
+func (dp DatapathHandle) DeleteFlow(f FlowSpec) error {
 	dpif := dp.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[FLOW])
@@ -428,7 +428,7 @@ func (dp *Datapath) DeleteFlow(f FlowSpec) error {
 	return err
 }
 
-func (dp *Datapath) EnumerateFlows() ([]FlowSpec, error) {
+func (dp DatapathHandle) EnumerateFlows() ([]FlowSpec, error) {
 	dpif := dp.dpif
 	res := make([]FlowSpec, 0)
 
