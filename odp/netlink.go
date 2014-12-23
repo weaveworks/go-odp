@@ -158,6 +158,17 @@ func (nlmsg *NlMsgBuilder) PutNestedAttrs(typ uint16, gen func()) {
 	})
 }
 
+func (nlmsg *NlMsgBuilder) PutEmptyAttr(typ uint16) {
+	nlmsg.PutAttr(typ, func () {})
+}
+
+func (nlmsg *NlMsgBuilder) PutUint8Attr(typ uint16, val uint8) {
+	nlmsg.PutAttr(typ, func () {
+		pos := nlmsg.Grow(1)
+		nlmsg.buf[pos] = val
+	})
+}
+
 func (nlmsg *NlMsgBuilder) PutUint16Attr(typ uint16, val uint16) {
 	nlmsg.PutAttr(typ, func () {
 		pos := nlmsg.Grow(2)
@@ -304,6 +315,40 @@ func (attrs Attrs) Get(typ uint16, optional bool) ([]byte, error) {
 	}
 
 	return val, nil
+}
+
+func (attrs Attrs) GetOptionalBytes(typ uint16, dest []byte) (bool, error) {
+	val, err := attrs.Get(typ, true)
+	if err != nil || val == nil { return false, err }
+
+	if len(val) != len(dest) {
+		return false, fmt.Errorf("attribute %d has wrong length (got %d bytes, expected %d bytes)", typ, len(val), len(dest))
+	}
+
+	copy(dest, val)
+	return true, nil
+}
+
+func (attrs Attrs) GetEmpty(typ uint16) (bool, error) {
+	val, err := attrs.Get(typ, true)
+	if err != nil || val == nil { return false, err }
+
+	if len(val) != 0 {
+		return false, fmt.Errorf("empty attribute %d has wrong length (%d bytes)", typ, len(val))
+	}
+
+	return true, nil
+}
+
+func (attrs Attrs) GetOptionalUint8(typ uint16) (uint8, bool, error) {
+	val, err := attrs.Get(typ, true)
+	if err != nil || val == nil { return 0, false, err }
+
+	if len(val) != 1 {
+		return 0, false, fmt.Errorf("uint8 attribute %d has wrong length (%d bytes)", typ, len(val))
+	}
+
+	return val[0], true, nil
 }
 
 func (attrs Attrs) GetUint16(typ uint16) (uint16, error) {

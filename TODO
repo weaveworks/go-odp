@@ -1,10 +1,12 @@
 tool: flow SET action
 
-too: elaborate error messages
+tool: show datapath in ports list, support for listing all ports in
+all datapaths
 
-tool: support for listing all ports in all datapaths
 
+flow.go: Tidy up after TunnelFlowKey rewrite
 
+tool: elaborate error messages
 
 tool: usage output
 

@@ -64,7 +64,7 @@ type FlowKeyParser struct {
 	// Flow key parsing function
 	//
 	// key may be nil if the relevant attribute wasn't provided.
-	// The generally means that the mask will indicate that the
+	// This generally means that the mask will indicate that the
 	// flow key is Ignored.
 	parse func (typ uint16, key []byte, mask []byte) (FlowKey, error)
 
@@ -270,9 +270,7 @@ func blobFlowKeyParser(size int, wrap func (BlobFlowKey) FlowKey) FlowKeyParser 
 // mask other than 0xffffffff to mean ignored.
 
 func parseInPortFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
-	exact := true
-	for _, b := range(mask) { exact = exact && b == 0xff }
-	if !exact { for i := range(mask) { mask[i] = 0 } }
+	if !allBytes(mask, 0xff) { for i := range(mask) { mask[i] = 0 } }
 	return parseBlobFlowKey(typ, key, mask, 4)
 }
 
@@ -308,8 +306,81 @@ var ethernetFlowKeyParser = blobFlowKeyParser(SizeofOvsKeyEthernet,
 // OVS_KEY_ATTR_TUNNEL: Tunnel flow key.  This is more elaborate than
 // other flow keys because it consists of a set of attributes.
 
+type TunnelAttrs struct {
+	TunnelId [8]byte
+	Ipv4Src [4]byte
+	Ipv4Dst [4]byte
+	Tos uint8
+	Ttl uint8
+	Df bool
+	Csum bool
+	TunnelIdPresent bool
+	Ipv4SrcPresent bool
+	Ipv4DstPresent bool
+	TosPresent bool
+	TtlPresent bool
+}
+
+func (ta TunnelAttrs) toNlAttrs(msg *NlMsgBuilder) {
+	if ta.TunnelIdPresent {
+		msg.PutSliceAttr(OVS_TUNNEL_KEY_ATTR_ID, ta.TunnelId[:])
+	}
+
+	if ta.Ipv4SrcPresent {
+		msg.PutSliceAttr(OVS_TUNNEL_KEY_ATTR_IPV4_SRC, ta.Ipv4Src[:])
+	}
+
+	if ta.Ipv4DstPresent {
+		msg.PutSliceAttr(OVS_TUNNEL_KEY_ATTR_IPV4_DST, ta.Ipv4Dst[:])
+	}
+
+	if ta.TosPresent {
+		msg.PutUint8Attr(OVS_TUNNEL_KEY_ATTR_TOS, ta.Tos)
+	}
+
+	if ta.TtlPresent {
+		msg.PutUint8Attr(OVS_TUNNEL_KEY_ATTR_TTL, ta.Ttl)
+	}
+
+	if ta.Df {
+		msg.PutEmptyAttr(OVS_TUNNEL_KEY_ATTR_DONT_FRAGMENT)
+	}
+
+	if ta.Csum {
+		msg.PutEmptyAttr(OVS_TUNNEL_KEY_ATTR_CSUM)
+	}
+}
+
+func parseTunnelAttrs(data []byte) (ta TunnelAttrs, err error) {
+	attrs, err := ParseNestedAttrs(data)
+	if err != nil { return }
+
+	ta.TunnelIdPresent, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_ID, ta.TunnelId[:])
+	if err != nil { return }
+
+	ta.Ipv4SrcPresent, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_IPV4_SRC, ta.Ipv4Src[:])
+	if err != nil { return }
+
+	ta.Ipv4DstPresent, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_IPV4_DST, ta.Ipv4Dst[:])
+
+	ta.Tos, ta.TosPresent, err = attrs.GetOptionalUint8(OVS_TUNNEL_KEY_ATTR_TOS)
+	if err != nil { return }
+
+	ta.Ttl, ta.TtlPresent, err = attrs.GetOptionalUint8(OVS_TUNNEL_KEY_ATTR_TTL)
+	if err != nil { return }
+
+	ta.Df, err = attrs.GetEmpty(OVS_TUNNEL_KEY_ATTR_DONT_FRAGMENT)
+	if err != nil { return }
+
+	ta.Csum, err = attrs.GetEmpty(OVS_TUNNEL_KEY_ATTR_CSUM)
+	if err != nil { return }
+
+	return
+}
+
 type TunnelFlowKey struct {
-	FlowKeys
+	key TunnelAttrs
+	mask TunnelAttrs
 }
 
 func (TunnelFlowKey) typeId() uint16 {
@@ -317,41 +388,61 @@ func (TunnelFlowKey) typeId() uint16 {
 }
 
 func (key TunnelFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
-	key.FlowKeys.toKeyNlAttrs(msg, OVS_KEY_ATTR_TUNNEL)
+	key.key.toNlAttrs(msg)
 }
 
 func (key TunnelFlowKey) putMaskNlAttr(msg *NlMsgBuilder) {
-	key.FlowKeys.toMaskNlAttrs(msg, OVS_KEY_ATTR_TUNNEL)
+	key.mask.toNlAttrs(msg)
 }
 
 func (a TunnelFlowKey) Equals(gb FlowKey) bool {
 	b, ok := gb.(TunnelFlowKey)
 	if !ok { return false }
-
-	return a.FlowKeys.Equals(b.FlowKeys)
+	return a.key == b.key && a.mask == b.mask
 }
 
-var tunnelSubkeyParsers = FlowKeyParsers {
-	OVS_TUNNEL_KEY_ATTR_TTL: blobFlowKeyParser(1, nil),
+func allBytes(data []byte, x byte) bool {
+	for _, y := range(data) {
+		if x != y { return false }
+	}
+
+	return true
+}
+
+func (key TunnelFlowKey) Ignored() bool {
+	m := key.mask
+	return (!m.TunnelIdPresent || allBytes(m.TunnelId[:], 0)) &&
+		(!m.Ipv4SrcPresent || allBytes(m.Ipv4Src[:], 0)) &&
+		(!m.Ipv4DstPresent || allBytes(m.Ipv4Dst[:], 0)) &&
+		(!m.TosPresent || m.Tos == 0) &&
+		(!m.TtlPresent || m.Ttl == 0) &&
+		!m.Df && !m.Csum
 }
 
 func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
-	var keys Attrs
+	var k, m TunnelAttrs
 	var err error
+
 	if key != nil {
-		keys, err = ParseNestedAttrs(key)
-		if err != nil { return nil, err }
-	} else {
-		keys = make(Attrs)
+		k, err = parseTunnelAttrs(key)
+		if err != nil { return nil, err}
 	}
 
-	masks, err := ParseNestedAttrs(mask)
-	if err != nil { return nil, err }
+	if mask != nil {
+		m, err = parseTunnelAttrs(mask)
+		if err != nil { return nil, err}
+	} else {
+		m = TunnelAttrs {
+			[8]byte { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff },
+			[4]byte { 0xff, 0xff, 0xff, 0xff },
+			[4]byte { 0xff, 0xff, 0xff, 0xff },
+			0xff, 0xff,
+			true, true,
+			true, true, true, true, true,
+		}
+	}
 
-	fk, err := parseFlowKeys(keys, masks, tunnelSubkeyParsers)
-	if err != nil { return nil, err }
-
-	return TunnelFlowKey{fk}, nil
+	return TunnelFlowKey{key: k, mask: m}, nil
 }
 
 var flowKeyParsers = FlowKeyParsers {
