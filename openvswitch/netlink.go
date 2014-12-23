@@ -349,6 +349,48 @@ func (attrs Attrs) GetString(typ uint16) (string, error) {
 	return string(val[0:len(val) - 1]), nil
 }
 
+func (nlmsg *NlMsgParser) checkData(l uintptr, obj string) error {
+	if nlmsg.pos + int(l) <= len(nlmsg.data) {
+		return nil
+	} else {
+		return fmt.Errorf("truncated %s (have %d bytes, expected %d)", obj, len(nlmsg.data) - nlmsg.pos, l)
+	}
+}
+
+func (nlmsg *NlMsgParser) parseAttrs(consumer func (uint16, []byte)) error {
+	for {
+		apos := align(nlmsg.pos, syscall.NLA_ALIGNTO)
+		if len(nlmsg.data) <= apos {
+			break
+		}
+
+		nlmsg.pos = apos
+
+		if err := nlmsg.checkData(syscall.SizeofNlAttr, "netlink attribute"); err != nil {
+			return err
+		}
+
+		nla := nlAttrAt(nlmsg.data, nlmsg.pos)
+		if err := nlmsg.checkData(uintptr(nla.Len), "netlink attribute"); err != nil {
+			return err
+		}
+
+		valpos := align(nlmsg.pos + syscall.SizeofNlAttr, syscall.NLA_ALIGNTO)
+		consumer(nla.Type, nlmsg.data[valpos:nlmsg.pos + int(nla.Len)])
+		nlmsg.pos += int(nla.Len)
+	}
+
+	return nil
+}
+
+func (nlmsg *NlMsgParser) TakeAttrs() (Attrs, error) {
+	res := make(Attrs)
+	err := nlmsg.parseAttrs(func (typ uint16, val []byte) {
+		res[typ] = val
+	})
+	return res, err
+}
+
 func ParseNestedAttrs(data []byte) (Attrs, error) {
 	parser := NlMsgParser{data: data, pos: 0}
 	return parser.TakeAttrs()
@@ -363,38 +405,29 @@ func (attrs Attrs) GetNestedAttrs(typ uint16, optional bool) (Attrs, error) {
 	return ParseNestedAttrs(val)
 }
 
-func (nlmsg *NlMsgParser) checkData(l uintptr, obj string) error {
-	if nlmsg.pos + int(l) <= len(nlmsg.data) {
-		return nil
-	} else {
-		return fmt.Errorf("truncated %s (have %d bytes, expected %d)", obj, len(nlmsg.data) - nlmsg.pos, l)
-	}
+// Usually we parse attributes into a map, but there are cases where
+// attribute order matters.
+
+type Attr struct {
+	typ uint16
+	val []byte
 }
 
-func (nlmsg *NlMsgParser) TakeAttrs() (attrs Attrs, err error) {
-	attrs = make(Attrs)
-	for {
-		apos := align(nlmsg.pos, syscall.NLA_ALIGNTO)
-		if len(nlmsg.data) <= apos {
-			return
-		}
-
-		nlmsg.pos = apos
-
-		if err = nlmsg.checkData(syscall.SizeofNlAttr, "netlink attribute"); err != nil {
-			return
-		}
-
-		nla := nlAttrAt(nlmsg.data, nlmsg.pos)
-		if err = nlmsg.checkData(uintptr(nla.Len), "netlink attribute"); err != nil {
-			return
-		}
-
-		valpos := align(nlmsg.pos + syscall.SizeofNlAttr, syscall.NLA_ALIGNTO)
-		attrs[nla.Type] = nlmsg.data[valpos:nlmsg.pos + int(nla.Len)]
-		nlmsg.pos += int(nla.Len)
+func (attrs Attrs) GetOrderedAttrs(typ uint16) ([]Attr, error) {
+	val, err := attrs.Get(typ, false)
+	if val == nil {
+		return nil, err
 	}
+
+	parser := NlMsgParser{data: val, pos: 0}
+	res := make([]Attr, 0)
+	err = parser.parseAttrs(func (typ uint16, val []byte) {
+		res = append(res, Attr{typ, val})
+	})
+
+	return res, err
 }
+
 
 func (s *NetlinkSocket) send(msg *NlMsgBuilder) (uint32, error) {
 	sa := syscall.SockaddrNetlink{

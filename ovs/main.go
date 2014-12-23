@@ -250,12 +250,16 @@ func parseMAC(s string) (mac [6]byte, err error) {
 	return
 }
 
-func flagsToFlowSpec(f Flags) (openvswitch.FlowSpec, bool) {
+func flagsToFlowSpec(f Flags, dpif *openvswitch.Dpif) (openvswitch.FlowSpec, bool) {
 	flow := openvswitch.NewFlowSpec()
 
 	var ethSrc, ethDst string
 	f.StringVar(&ethSrc, "ethsrc", "", "ethernet source MAC")
 	f.StringVar(&ethDst, "ethdst", "", "ethernet destination MAC")
+
+	var output string
+	f.StringVar(&output, "output", "", "vport for output action")
+
 	if !f.Parse() { return flow, false }
 
 	if (ethSrc != "") != (ethDst != "") {
@@ -271,16 +275,22 @@ func flagsToFlowSpec(f Flags) (openvswitch.FlowSpec, bool) {
 		flow.AddKey(openvswitch.NewEthernetFlowKey(src, dst))
 	}
 
+	if output != "" {
+		vport, err := dpif.LookupVport(output)
+		if err != nil { return flow, printErr("%s", err) }
+		flow.AddAction(openvswitch.NewOutputAction(vport.Handle))
+	}
+
 	return flow, true
 }
 
 func createFlow(args []string, f Flags) bool {
-	flow, ok := flagsToFlowSpec(f)
-	if !ok { return false }
-
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
+
+	flow, ok := flagsToFlowSpec(f, dpif)
+	if !ok { return false }
 
 	dp, err := dpif.LookupDatapath(args[0])
 	if err != nil { return printErr("%s", err) }
@@ -292,12 +302,12 @@ func createFlow(args []string, f Flags) bool {
 }
 
 func deleteFlow(args []string, f Flags) bool {
-	flow, ok := flagsToFlowSpec(f)
-	if !ok { return false }
-
 	dpif, err := openvswitch.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
+
+	flow, ok := flagsToFlowSpec(f, dpif)
+	if !ok { return false }
 
 	dp, err := dpif.LookupDatapath(args[0])
 	if err != nil { return printErr("%s", err) }
@@ -322,13 +332,13 @@ func listFlows(args []string, f Flags) bool {
 	if err != nil { return printErr("%s", err) }
 
 	for _, flow := range(flows) {
-		if !printFlow(args[0], flow) { return false }
+		if !printFlow(flow, dp, args[0]) { return false }
 	}
 
 	return true
 }
 
-func printFlow(dpname string, flow openvswitch.FlowSpec) bool {
+func printFlow(flow openvswitch.FlowSpec, dp openvswitch.DatapathHandle, dpname string) bool {
 	os.Stdout.WriteString(dpname)
 
 	for _, fk := range(flow.FlowKeys) {
@@ -345,6 +355,30 @@ func printFlow(dpname string, flow openvswitch.FlowSpec) bool {
 
 		default:
 			fmt.Printf("%v", fk)
+			break
+		}
+	}
+
+	for _, a := range(flow.Actions) {
+		switch a := a.(type) {
+		case openvswitch.OutputAction:
+			vport, err := a.VportHandle(dp).Lookup()
+			if err != nil {
+				if !openvswitch.IsNoSuchVportError(err) {
+					return printErr("%s", err)
+				}
+
+				// No vport with the port number in
+				// the flow, so just show the number
+				fmt.Printf(" --output=%d", a)
+			} else {
+				fmt.Printf(" --output=%s", vport.Spec.Name())
+			}
+
+			break
+
+		default:
+			fmt.Printf("%v", a)
 			break
 		}
 	}

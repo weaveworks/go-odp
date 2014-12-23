@@ -1,4 +1,4 @@
-tool: flow actions
+tool: flow SET action
 
 too: elaborate error messages
 
@@ -10,7 +10,7 @@ tool: usage output
 
 TODOs in dpif.go
 
-Port types
+Caching/joining for vport names in printFlow
 
 Handle NLM_F_DUMP_INTR
 

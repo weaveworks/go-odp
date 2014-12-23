@@ -161,6 +161,16 @@ type OvsKeyEthernet struct {
 
 const SizeofOvsKeyEthernet = 12
 
+const ( // ovs_action_attr
+	OVS_ACTION_ATTR_UNSPEC = 0
+	OVS_ACTION_ATTR_OUTPUT = 1
+	OVS_ACTION_ATTR_USERSPACE = 2
+	OVS_ACTION_ATTR_SET = 3
+	OVS_ACTION_ATTR_PUSH_VLAN = 4
+	OVS_ACTION_ATTR_POP_VLAN = 5
+	OVS_ACTION_ATTR_SAMPLE = 6
+)
+
 const (
 	OVS_DP_F_UNALIGNED = 1
 	OVS_DP_F_VPORT_PIDS = 2

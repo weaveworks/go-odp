@@ -207,8 +207,13 @@ func TestCreateFlow(t *testing.T) {
 	if err != nil {	t.Fatal(err) }
 	defer checkedDeleteDatapath(dp, t)
 
+	vpname := fmt.Sprintf("test%d", rand.Intn(100000))
+	vport, err := dp.CreateVport(NewInternalVportSpec(vpname))
+	if err != nil { t.Fatal(err) }
+
 	f := NewFlowSpec()
 	f.AddKey(NewEthernetFlowKey([...]byte { 1,2,3,4,5,6 }, [...]byte { 6,5,4,3,2,1 }))
+	f.AddAction(NewOutputAction(vport))
 
 	err = dp.CreateFlow(f)
 	if err != nil {	t.Fatal(err) }
@@ -231,12 +236,17 @@ func TestEnumerateFlows(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	defer checkedDeleteDatapath(dp, t)
 
+	vpname := fmt.Sprintf("test%d", rand.Intn(100000))
+	vport, err := dp.CreateVport(NewInternalVportSpec(vpname))
+	if err != nil { t.Fatal(err) }
+
 	const n = 10
 	var flows [n]FlowSpec
 
 	for i := range(flows) {
 		flow := NewFlowSpec()
 		flow.AddKey(NewEthernetFlowKey([...]byte { 1,2,3,4,5,byte(i) }, [...]byte { 6,5,4,3,2,1 }))
+		flow.AddAction(NewOutputAction(vport))
 		err = dp.CreateFlow(flow)
 		if err != nil { t.Fatal(err) }
 		flows[i] = flow

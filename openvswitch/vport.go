@@ -76,6 +76,8 @@ func parseVxlanVportSpec(name string, opts Attrs) (VportSpec, error) {
 
 type VportHandle struct {
 	dpif *Dpif
+
+	// Port numbers are scoped to a particular datapath
 	portNo uint32
 	dpIfIndex int32
 }
@@ -185,6 +187,27 @@ func (dpif *Dpif) LookupVport(name string) (Vport, error) {
 
 func (dp DatapathHandle) LookupVport(name string) (Vport, error) {
 	return lookupVport(dp.dpif, dp.ifindex, name)
+}
+
+func (h VportHandle) Lookup() (Vport, error) {
+	dpif := h.dpif
+
+	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[VPORT])
+	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
+	req.putOvsHeader(h.dpIfIndex)
+	req.PutUint32Attr(OVS_VPORT_ATTR_PORT_NO, h.portNo)
+
+	resp, err := dpif.sock.Request(req)
+	if err != nil {
+		return Vport{}, err
+	}
+
+	h, s, err := dpif.parseVport(resp)
+	if err != nil {
+		return Vport{}, err
+	}
+
+	return Vport{h, s}, nil
 }
 
 func (dp DatapathHandle) EnumerateVports() ([]Vport, error) {

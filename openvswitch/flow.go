@@ -127,32 +127,6 @@ func parseFlowKeys(keys Attrs, masks Attrs, parsers FlowKeyParsers) (res FlowKey
 	return res, nil
 }
 
-type FlowSpec struct {
-	FlowKeys
-}
-
-func NewFlowSpec() FlowSpec {
-	return FlowSpec{FlowKeys: make(FlowKeys)}
-}
-
-func (f FlowSpec) AddKey(k FlowKey) {
-	// TODO check for collisions
-	f.FlowKeys[k.typeId()] = k
-}
-
-func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
-	f.FlowKeys.toKeyNlAttrs(msg, OVS_FLOW_ATTR_KEY)
-	f.FlowKeys.toMaskNlAttrs(msg, OVS_FLOW_ATTR_MASK)
-
-	// ACTIONS is required
-	msg.PutNestedAttrs(OVS_FLOW_ATTR_ACTIONS, func () {
-	})
-}
-
-func (a FlowSpec) Equals(b FlowSpec) bool {
-	return a.FlowKeys.Equals(b.FlowKeys)
-}
-
 // Most flow keys can be handled as opaque bytes.  Doing so avoids
 // repetition.
 
@@ -401,6 +375,96 @@ var flowKeyParsers = FlowKeyParsers {
 	},
 }
 
+
+// Actions
+
+type Action interface {
+	typeId() uint16
+	toNlAttr(*NlMsgBuilder)
+	Equals(Action) bool
+}
+
+type OutputAction uint32
+
+func NewOutputAction(port VportHandle) OutputAction {
+	return OutputAction(port.portNo)
+}
+
+func (oa OutputAction) VportHandle(dp DatapathHandle) VportHandle {
+	return VportHandle{
+		dpif: dp.dpif,
+		portNo: uint32(oa),
+		dpIfIndex: dp.ifindex,
+	}
+}
+
+func (OutputAction) typeId() uint16 {
+	return OVS_ACTION_ATTR_OUTPUT
+}
+
+func (oa OutputAction) toNlAttr(msg *NlMsgBuilder) {
+	msg.PutUint32Attr(OVS_ACTION_ATTR_OUTPUT, uint32(oa))
+}
+
+func (a OutputAction) Equals(bx Action) bool {
+	b, ok := bx.(OutputAction)
+	if !ok { return false }
+	return a == b;
+}
+
+func parseOutputAction(typ uint16, data []byte) (Action, error) {
+	if len(data) < 4 {
+		return nil, fmt.Errorf("flow action type %d has wrong length (expects 4 bytes, got %d)", typ, len(data))
+	}
+
+	return OutputAction(getUint32(data, 0)), nil
+}
+
+var actionParsers = map[uint16](func (uint16, []byte) (Action, error)) {
+	OVS_ACTION_ATTR_OUTPUT: parseOutputAction,
+}
+
+// Complete flows
+
+type FlowSpec struct {
+	FlowKeys
+	Actions []Action
+}
+
+func NewFlowSpec() FlowSpec {
+	return FlowSpec{FlowKeys: make(FlowKeys), Actions: make([]Action, 0)}
+}
+
+func (f *FlowSpec) AddKey(k FlowKey) {
+	// TODO check for collisions
+	f.FlowKeys[k.typeId()] = k
+}
+
+func (f *FlowSpec) AddAction(a Action) {
+	f.Actions = append(f.Actions, a)
+}
+
+func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
+	f.FlowKeys.toKeyNlAttrs(msg, OVS_FLOW_ATTR_KEY)
+	f.FlowKeys.toMaskNlAttrs(msg, OVS_FLOW_ATTR_MASK)
+
+	// ACTIONS is required
+	msg.PutNestedAttrs(OVS_FLOW_ATTR_ACTIONS, func () {
+		for _, a := range(f.Actions) { a.toNlAttr(msg) }
+	})
+}
+
+func (a FlowSpec) Equals(b FlowSpec) bool {
+	if !a.FlowKeys.Equals(b.FlowKeys) { return false }
+	if len(a.Actions) != len(b.Actions) { return false }
+
+	for i := range(a.Actions) {
+		if !a.Actions[i].Equals(b.Actions[i]) {	return false }
+	}
+
+	return true
+}
+
 func (dp DatapathHandle) checkOvsHeader(msg *NlMsgParser) error {
 	ovshdr, err := msg.takeOvsHeader()
 	if err != nil { return err }
@@ -436,6 +500,22 @@ func (dp DatapathHandle) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 	f.FlowKeys, err = parseFlowKeys(keys, masks, flowKeyParsers)
 	if err != nil { return f, err }
 
+	actattrs, err := attrs.GetOrderedAttrs(OVS_FLOW_ATTR_ACTIONS)
+	if err != nil { return f, err }
+
+	actions := make([]Action, 0)
+	for _, actattr := range(actattrs) {
+		parser, ok := actionParsers[actattr.typ]
+		if !ok {
+			return f, fmt.Errorf("unknown action type %d (value %v)", actattr.typ, actattr.val)
+		}
+
+		action, err := parser(actattr.typ, actattr.val)
+		if err != nil { return f, err }
+		actions = append(actions, action)
+	}
+
+	f.Actions = actions
 	return f, nil
 }
 
