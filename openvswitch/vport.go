@@ -38,6 +38,14 @@ func (s SimpleVportSpec) typeId() uint32 {
 func (SimpleVportSpec) optionNlAttrs(req *NlMsgBuilder) {
 }
 
+func NewNetdevVportSpec(name string) VportSpec {
+	return SimpleVportSpec{
+		VportSpecBase{name},
+		OVS_VPORT_TYPE_NETDEV,
+		"netdev",
+	}
+}
+
 func NewInternalVportSpec(name string) VportSpec {
 	return SimpleVportSpec{
 		VportSpecBase{name},
@@ -112,6 +120,10 @@ func (dpif *Dpif) parseVport(msg *NlMsgParser) (h VportHandle, s VportSpec, err 
 	if opts == nil { opts = make(Attrs) }
 
 	switch (typ) {
+	case OVS_VPORT_TYPE_NETDEV:
+		s = NewNetdevVportSpec(name)
+		break
+
 	case OVS_VPORT_TYPE_INTERNAL:
 		s = NewInternalVportSpec(name)
 		break

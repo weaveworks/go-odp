@@ -89,6 +89,7 @@ var commands = subcommands {
 	},
 	"vport": subcommands {
 		"create": subcommands {
+			"netdev": command{createNetdevVport, 2},
 			"internal": command{createInternalVport, 2},
 			"vxlan" : command{createVxlanVport, 2},
 		},
@@ -154,6 +155,11 @@ func listDatapaths(_ []string, f Flags) bool {
 	}
 
 	return true
+}
+
+func createNetdevVport(args []string, f Flags) bool {
+	if !f.Parse() { return false }
+	return createVport(args[0], openvswitch.NewNetdevVportSpec(args[1]))
 }
 
 func createInternalVport(args []string, f Flags) bool {
