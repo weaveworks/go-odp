@@ -6,7 +6,7 @@ import (
 	"strings"
 	"flag"
 	"net"
-	"github.com/dpw/go-openvswitch/openvswitch"
+	"github.com/dpw/go-odp/odp"
 )
 
 func printErr(f string, a ...interface{}) bool {
@@ -112,7 +112,7 @@ func main() {
 func createDatapath(args []string, f Flags) bool {
 	if !f.Parse() { return false }
 
-	dpif, err := openvswitch.NewDpif()
+	dpif, err := odp.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
@@ -125,14 +125,14 @@ func createDatapath(args []string, f Flags) bool {
 func deleteDatapath(args []string, f Flags) bool {
 	if !f.Parse() { return false }
 
-	dpif, err := openvswitch.NewDpif()
+	dpif, err := odp.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
 	dp, err := dpif.LookupDatapath(args[0])
 	if err != nil { return printErr("%s", err) }
 
-	if openvswitch.IsNoSuchDatapathError(err) {
+	if odp.IsNoSuchDatapathError(err) {
 		return printErr("Cannot find datapath \"%s\"", args[0]);
 	}
 
@@ -145,7 +145,7 @@ func deleteDatapath(args []string, f Flags) bool {
 func listDatapaths(_ []string, f Flags) bool {
 	if !f.Parse() { return false }
 
-	dpif, err := openvswitch.NewDpif()
+	dpif, err := odp.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
@@ -159,12 +159,12 @@ func listDatapaths(_ []string, f Flags) bool {
 
 func createNetdevVport(args []string, f Flags) bool {
 	if !f.Parse() { return false }
-	return createVport(args[0], openvswitch.NewNetdevVportSpec(args[1]))
+	return createVport(args[0], odp.NewNetdevVportSpec(args[1]))
 }
 
 func createInternalVport(args []string, f Flags) bool {
 	if !f.Parse() { return false }
-	return createVport(args[0], openvswitch.NewInternalVportSpec(args[1]))
+	return createVport(args[0], odp.NewInternalVportSpec(args[1]))
 }
 
 func createVxlanVport(args []string, f Flags) bool {
@@ -177,11 +177,11 @@ func createVxlanVport(args []string, f Flags) bool {
 		return printErr("destport too large")
 	}
 
-	return createVport(args[0], openvswitch.NewVxlanVportSpec(args[1], uint16(destPort)))
+	return createVport(args[0], odp.NewVxlanVportSpec(args[1], uint16(destPort)))
 }
 
-func createVport(dpname string, spec openvswitch.VportSpec) bool {
-	dpif, err := openvswitch.NewDpif()
+func createVport(dpname string, spec odp.VportSpec) bool {
+	dpif, err := odp.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
@@ -197,13 +197,13 @@ func createVport(dpname string, spec openvswitch.VportSpec) bool {
 func deleteVport(args []string, f Flags) bool {
 	if !f.Parse() { return false }
 
-	dpif, err := openvswitch.NewDpif()
+	dpif, err := odp.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
 	vport, err := dpif.LookupVport(args[0])
 	if err != nil {
-		if openvswitch.IsNoSuchVportError(err) {
+		if odp.IsNoSuchVportError(err) {
 			return printErr("Cannot find port \"%s\"", args[0]);
 		}
 
@@ -219,7 +219,7 @@ func deleteVport(args []string, f Flags) bool {
 func listVports(args []string, f Flags) bool {
 	if !f.Parse() { return false }
 
-	dpif, err := openvswitch.NewDpif()
+	dpif, err := odp.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
@@ -232,7 +232,7 @@ func listVports(args []string, f Flags) bool {
 		fmt.Printf("%s %s", spec.TypeName(), spec.Name())
 
 		switch spec := spec.(type) {
-		case openvswitch.VxlanVportSpec:
+		case odp.VxlanVportSpec:
 			fmt.Printf(" --destport=%d", spec.DestPort)
 			break
 		}
@@ -256,8 +256,8 @@ func parseMAC(s string) (mac [6]byte, err error) {
 	return
 }
 
-func flagsToFlowSpec(f Flags, dpif *openvswitch.Dpif) (openvswitch.FlowSpec, bool) {
-	flow := openvswitch.NewFlowSpec()
+func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
+	flow := odp.NewFlowSpec()
 
 	var ethSrc, ethDst string
 	f.StringVar(&ethSrc, "ethsrc", "", "ethernet source MAC")
@@ -278,20 +278,20 @@ func flagsToFlowSpec(f Flags, dpif *openvswitch.Dpif) (openvswitch.FlowSpec, boo
 		dst, err := parseMAC(ethDst)
 		if err != nil { return flow, printErr("%s", err) }
 
-		flow.AddKey(openvswitch.NewEthernetFlowKey(src, dst))
+		flow.AddKey(odp.NewEthernetFlowKey(src, dst))
 	}
 
 	if output != "" {
 		vport, err := dpif.LookupVport(output)
 		if err != nil { return flow, printErr("%s", err) }
-		flow.AddAction(openvswitch.NewOutputAction(vport.Handle))
+		flow.AddAction(odp.NewOutputAction(vport.Handle))
 	}
 
 	return flow, true
 }
 
 func createFlow(args []string, f Flags) bool {
-	dpif, err := openvswitch.NewDpif()
+	dpif, err := odp.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
@@ -308,7 +308,7 @@ func createFlow(args []string, f Flags) bool {
 }
 
 func deleteFlow(args []string, f Flags) bool {
-	dpif, err := openvswitch.NewDpif()
+	dpif, err := odp.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
@@ -327,7 +327,7 @@ func deleteFlow(args []string, f Flags) bool {
 func listFlows(args []string, f Flags) bool {
 	if !f.Parse() { return false }
 
-	dpif, err := openvswitch.NewDpif()
+	dpif, err := odp.NewDpif()
 	if err != nil { return printErr("%s", err) }
 	defer dpif.Close()
 
@@ -344,14 +344,14 @@ func listFlows(args []string, f Flags) bool {
 	return true
 }
 
-func printFlow(flow openvswitch.FlowSpec, dp openvswitch.DatapathHandle, dpname string) bool {
+func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 	os.Stdout.WriteString(dpname)
 
 	for _, fk := range(flow.FlowKeys) {
 		if fk.Ignored() { continue }
 
 		switch fk := fk.(type) {
-		case openvswitch.EthernetFlowKey:
+		case odp.EthernetFlowKey:
 			s := fk.EthSrc()
 			d := fk.EthDst()
 			fmt.Printf(" --ethsrc=%s --ethdst=%s",
@@ -367,10 +367,10 @@ func printFlow(flow openvswitch.FlowSpec, dp openvswitch.DatapathHandle, dpname 
 
 	for _, a := range(flow.Actions) {
 		switch a := a.(type) {
-		case openvswitch.OutputAction:
+		case odp.OutputAction:
 			vport, err := a.VportHandle(dp).Lookup()
 			if err != nil {
-				if !openvswitch.IsNoSuchVportError(err) {
+				if !odp.IsNoSuchVportError(err) {
 					return printErr("%s", err)
 				}
 
