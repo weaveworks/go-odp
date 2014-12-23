@@ -195,9 +195,26 @@ func (key BlobFlowKey) Ignored() bool {
 	return true
 }
 
+// Go's anonymous struct fields are not quite a replacement for
+// inheritance.  We want to have an Equals method for BlobFlowKeys,
+// that works even when BlobFlowKeys are embedded as anonymous struct
+// fields.  But we can use a straightforware type assertion to tell if
+// another FlowKey is also a BlobFlowKey, because in the embedded
+// case, it will say that the FlowKey is not an BlobFlowKey (the "has
+// an anonymoys field of X" is not an "is a X" relation).  To work
+// around this, we use an interface, implemented by BlobFlowKey, that
+// automatically ges promoted to all structs that embed BlobFlowKey.
+
+type BlobFlowKeyish interface {
+	toBlobFlowKey() BlobFlowKey
+}
+
+func (key BlobFlowKey) toBlobFlowKey() BlobFlowKey { return key }
+
 func (a BlobFlowKey) Equals(gb FlowKey) bool {
-	b, ok := gb.(BlobFlowKey)
+	bx, ok := gb.(BlobFlowKeyish)
 	if !ok { return false }
+	b := bx.toBlobFlowKey()
 
 	size := len(a.keyMask)
 	if len(b.keyMask) != size { return false }
