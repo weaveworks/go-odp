@@ -1,10 +1,9 @@
-tool: flow SET action
-
 tool: show datapath in ports list, support for listing all ports in
 all datapaths
 
-
 flow.go: Tidy up after TunnelFlowKey rewrite
+
+Replace uint16 map functions with switches
 
 tool: elaborate error messages
 

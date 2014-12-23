@@ -6,6 +6,7 @@ import (
 	"strings"
 	"flag"
 	"net"
+	"encoding/hex"
 	"github.com/dpw/go-odp/odp"
 )
 
@@ -256,15 +257,54 @@ func parseMAC(s string) (mac [6]byte, err error) {
 	return
 }
 
+func parseIpv4(s string) (res [4]byte, err error) {
+	ip := net.ParseIP(s)
+	if ip != nil { ip = ip.To4() }
+	if ip == nil || len(ip) != 4 {
+		err = fmt.Errorf("invalid IPv4 address \"%s\"", s)
+	} else {
+		copy(res[:], ip)
+	}
+	return
+}
+
+func ipv4ToString(ip [4]byte) string {
+	return net.IP(ip[:]).To4().String()
+}
+
+func parseTunnelId(s string) (res [8]byte, err error) {
+	x, err := hex.DecodeString(s)
+	if err != nil { return }
+
+	if len(x) == 8 {
+		copy(res[:], x)
+	} else {
+		err = fmt.Errorf("invalid tunnel Id \"%s\"", s)
+	}
+
+	return
+}
+
 func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 	flow := odp.NewFlowSpec()
 
 	var ethSrc, ethDst string
-	f.StringVar(&ethSrc, "ethsrc", "", "ethernet source MAC")
-	f.StringVar(&ethDst, "ethdst", "", "ethernet destination MAC")
+	f.StringVar(&ethSrc, "ethsrc", "", "key: ethernet source MAC")
+	f.StringVar(&ethDst, "ethdst", "", "key: ethernet destination MAC")
+
+	var setTunId, setTunIpv4Src, setTunIpv4Dst string
+	var setTunTos, setTunTtl int
+	var setTunDf, setTunCsum bool
+	f.StringVar(&setTunId, "set-tunnel-id", "", "action: set tunnel ID")
+	f.StringVar(&setTunIpv4Src, "set-tunnel-ipv4-src", "", "action: set tunnel ipv4 source address")
+	f.StringVar(&setTunIpv4Dst, "set-tunnel-ipv4-dst", "", "action: set tunnel ipv4 destination address")
+	f.IntVar(&setTunTos, "set-tunnel-tos", -1, "action: set tunnel ToS")
+	f.IntVar(&setTunTtl, "set-tunnel-ttl", -1, "action: set tunnel TTL")
+	f.BoolVar(&setTunDf, "set-tunnel-df", false, "action: set tunnel DF")
+	f.BoolVar(&setTunCsum, "set-tunnel-csum", false, "action: set tunnel checksum")
 
 	var output string
-	f.StringVar(&output, "output", "", "vport for output action")
+	f.StringVar(&output, "output", "", "action: output to vport")
 
 	if !f.Parse() { return flow, false }
 
@@ -279,6 +319,47 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 		if err != nil { return flow, printErr("%s", err) }
 
 		flow.AddKey(odp.NewEthernetFlowKey(src, dst))
+	}
+
+	// Actions are ordered, but flags aren't.  As a temporary
+	// hack, we already put SET actions before an OUTPUT action.
+
+	if setTunIpv4Src != "" || setTunIpv4Dst != "" {
+		var ta odp.TunnelAttrs
+		var err error
+
+		if setTunId != "" {
+			ta.TunnelId, err = parseTunnelId(setTunId)
+			if err != nil { return flow, printErr("%s", err) }
+			ta.TunnelIdPresent = true
+		}
+
+		if setTunIpv4Src != "" {
+			ta.Ipv4Src, err = parseIpv4(setTunIpv4Src)
+			if err != nil { return flow, printErr("%s", err) }
+			ta.Ipv4SrcPresent = true
+		}
+
+		if setTunIpv4Dst != "" {
+			ta.Ipv4Dst, err = parseIpv4(setTunIpv4Dst)
+			if err != nil { return flow, printErr("%s", err) }
+			ta.Ipv4DstPresent = true
+		}
+
+		if setTunTos > 0 {
+			ta.Tos = uint8(setTunTos)
+			ta.TosPresent = true
+		}
+
+		if setTunTtl > 0 {
+			ta.Ttl = uint8(setTunTtl)
+			ta.TtlPresent = true
+		}
+
+		ta.Df = setTunDf
+		ta.Csum = setTunCsum
+
+		flow.AddAction(odp.SetTunnelAction{ta})
 	}
 
 	if output != "" {
@@ -368,19 +449,13 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 	for _, a := range(flow.Actions) {
 		switch a := a.(type) {
 		case odp.OutputAction:
-			vport, err := a.VportHandle(dp).Lookup()
-			if err != nil {
-				if !odp.IsNoSuchVportError(err) {
-					return printErr("%s", err)
-				}
-
-				// No vport with the port number in
-				// the flow, so just show the number
-				fmt.Printf(" --output=%d", a)
-			} else {
-				fmt.Printf(" --output=%s", vport.Spec.Name())
+			if (!printOutputAction(a, dp, dpname)) {
+				return false
 			}
+			break
 
+		case odp.SetTunnelAction:
+			printSetTunnelAction(a)
 			break
 
 		default:
@@ -391,4 +466,53 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 
 	os.Stdout.WriteString("\n")
 	return true
+}
+
+func printOutputAction(a odp.OutputAction, dp odp.DatapathHandle, dpname string) bool {
+	vport, err := a.VportHandle(dp).Lookup()
+	if err != nil {
+		if !odp.IsNoSuchVportError(err) {
+			return printErr("%s", err)
+		}
+
+		// No vport with the port number in the flow, so just
+		// show the number
+		fmt.Printf(" --output=%d", a)
+	} else {
+		fmt.Printf(" --output=%s", vport.Spec.Name())
+	}
+
+	return true
+}
+
+func printSetTunnelAction(a odp.SetTunnelAction) {
+	var ta odp.TunnelAttrs = a.TunnelAttrs
+
+	if ta.TunnelIdPresent {
+		fmt.Printf(" --set-tunnel-id=%s", hex.EncodeToString(ta.TunnelId[:]))
+	}
+
+	if ta.Ipv4SrcPresent {
+		fmt.Printf(" --set-tunnel-ipv4-src=%s", ipv4ToString(ta.Ipv4Src))
+	}
+
+	if ta.Ipv4DstPresent {
+		fmt.Printf(" --set-tunnel-ipv4-dst=%s", ipv4ToString(ta.Ipv4Dst))
+	}
+
+	if ta.TosPresent {
+		fmt.Printf(" --set-tunnel-tos=%d", ta.Tos)
+	}
+
+	if ta.TtlPresent {
+		fmt.Printf(" --set-tunnel-ttl=%d", ta.Ttl)
+	}
+
+	if ta.Df {
+		fmt.Printf(" --set-tunnel-df")
+	}
+
+	if ta.Csum {
+		fmt.Printf(" --set-tunnel-csum")
+	}
 }

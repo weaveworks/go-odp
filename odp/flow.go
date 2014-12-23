@@ -511,8 +511,61 @@ func parseOutputAction(typ uint16, data []byte) (Action, error) {
 	return OutputAction(getUint32(data, 0)), nil
 }
 
+
+type SetTunnelAction struct {
+	TunnelAttrs
+}
+
+func (SetTunnelAction) typeId() uint16 {
+	return OVS_ACTION_ATTR_SET
+}
+
+func (ta SetTunnelAction) toNlAttr(msg *NlMsgBuilder) {
+	msg.PutNestedAttrs(OVS_ACTION_ATTR_SET, func () {
+		msg.PutNestedAttrs(OVS_KEY_ATTR_TUNNEL, func () {
+			ta.toNlAttrs(msg)
+		})
+	})
+}
+
+func (a SetTunnelAction) Equals(bx Action) bool {
+	b, ok := bx.(SetTunnelAction)
+	if !ok { return false }
+	return a.TunnelAttrs == b.TunnelAttrs
+}
+
+
+func parseSetAction(typ uint16, data []byte) (Action, error) {
+	attrs, err := ParseNestedAttrs(data)
+	if err != nil { return nil, err }
+
+	var res Action
+	first := true
+	for typ, data := range(attrs) {
+		if !first {
+			return nil, fmt.Errorf("multiple attributes within OVS_ACTION_ATTR_SET")
+		}
+
+		switch typ {
+		case OVS_KEY_ATTR_TUNNEL:
+			ta, err := parseTunnelAttrs(data)
+			if err != nil { return nil, err }
+			res = SetTunnelAction{ta}
+			break
+
+		default:
+			return nil, fmt.Errorf("unsupported OVS_ACTION_ATTR_SET attribute %d", typ)
+		}
+
+		first = false
+	}
+
+	return res, nil
+}
+
 var actionParsers = map[uint16](func (uint16, []byte) (Action, error)) {
 	OVS_ACTION_ATTR_OUTPUT: parseOutputAction,
+	OVS_ACTION_ATTR_SET: parseSetAction,
 }
 
 // Complete flows
