@@ -3,7 +3,6 @@ package odp
 import (
 	"syscall"
 	"fmt"
-	"unsafe"
 )
 
 type FlowKey interface {
@@ -145,20 +144,24 @@ func NewBlobFlowKey(typ uint16, size int) BlobFlowKey {
 	return BlobFlowKey{typ: typ, keyMask: km}
 }
 
-func (key BlobFlowKey) pointer() unsafe.Pointer {
-	return unsafe.Pointer(&key.keyMask[0])
-}
-
 func (key BlobFlowKey) typeId() uint16 {
 	return key.typ
 }
 
+func (key BlobFlowKey) key() []byte {
+	return key.keyMask[:len(key.keyMask) / 2]
+}
+
+func (key BlobFlowKey) mask() []byte {
+	return key.keyMask[len(key.keyMask) / 2:]
+}
+
 func (key BlobFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
-	msg.PutSliceAttr(key.typ, key.keyMask[:len(key.keyMask) / 2])
+	msg.PutSliceAttr(key.typ, key.key())
 }
 
 func (key BlobFlowKey) putMaskNlAttr(msg *NlMsgBuilder) {
-	msg.PutSliceAttr(key.typ, key.keyMask[len(key.keyMask) / 2:])
+	msg.PutSliceAttr(key.typ, key.mask())
 }
 
 func (key BlobFlowKey) Ignored() bool {
@@ -282,22 +285,18 @@ type EthernetFlowKey struct {
 
 func NewEthernetFlowKey(src [ETH_ALEN]byte, dst [ETH_ALEN]byte) FlowKey {
 	fk := NewBlobFlowKey(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet)
-	ek := (*OvsKeyEthernet)(fk.pointer())
+	ek := ovsKeyEthernetAt(fk.key(), 0)
 	ek.EthSrc = src
 	ek.EthDst = dst
 	return EthernetFlowKey{fk}
 }
 
-func (k EthernetFlowKey) toOvsKeyEthernet() *OvsKeyEthernet {
-	return (*OvsKeyEthernet)(k.pointer())
-}
-
 func (k EthernetFlowKey) EthSrc() [ETH_ALEN]byte {
-	return k.toOvsKeyEthernet().EthSrc
+	return ovsKeyEthernetAt(k.key(), 0).EthSrc
 }
 
 func (k EthernetFlowKey) EthDst() [ETH_ALEN]byte {
-	return k.toOvsKeyEthernet().EthDst
+	return ovsKeyEthernetAt(k.key(), 0).EthDst
 }
 
 var ethernetFlowKeyParser = blobFlowKeyParser(SizeofOvsKeyEthernet,
@@ -508,7 +507,7 @@ func parseOutputAction(typ uint16, data []byte) (Action, error) {
 		return nil, fmt.Errorf("flow action type %d has wrong length (expects 4 bytes, got %d)", typ, len(data))
 	}
 
-	return OutputAction(getUint32(data, 0)), nil
+	return OutputAction(*uint32At(data, 0)), nil
 }
 
 

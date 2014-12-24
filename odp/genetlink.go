@@ -3,12 +3,7 @@ package odp
 import (
         "syscall"
 	"fmt"
-	"unsafe"
 )
-
-func genlMsghdrAt(data []byte, pos int) *GenlMsghdr {
-	return (*GenlMsghdr)(unsafe.Pointer(&data[pos]))
-}
 
 func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8, version uint8) (*GenlMsghdr) {
 	pos := nlmsg.AlignGrow(syscall.NLMSG_ALIGNTO, SizeofGenlMsghdr)

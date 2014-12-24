@@ -3,7 +3,6 @@ package odp
 import (
 	"syscall"
 	"fmt"
-	"unsafe"
 )
 
 const (
@@ -63,10 +62,6 @@ func (dpif *Dpif) Close() error {
 	err := dpif.sock.Close()
 	dpif.sock = nil
 	return err
-}
-
-func ovsHeaderAt(data []byte, pos int) *OvsHeader {
-	return (*OvsHeader)(unsafe.Pointer(&data[pos]))
 }
 
 func (nlmsg *NlMsgBuilder) putOvsHeader(ifindex int32) {

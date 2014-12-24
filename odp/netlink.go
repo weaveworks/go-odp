@@ -2,7 +2,6 @@ package odp
 
 import (
         "syscall"
-	"unsafe"
 	"fmt"
 	"sync/atomic"
 	"reflect"
@@ -50,34 +49,6 @@ func (s *NetlinkSocket) Pid() uint32 {
 
 func (s *NetlinkSocket) Close() error {
         return syscall.Close(s.fd)
-}
-
-func nlMsghdrAt(data []byte, pos int) *syscall.NlMsghdr {
-	return (*syscall.NlMsghdr)(unsafe.Pointer(&data[pos]))
-}
-
-func nlAttrAt(data []byte, pos int) *syscall.NlAttr {
-	return (*syscall.NlAttr)(unsafe.Pointer(&data[pos]))
-}
-
-func nlMsgerrAt(data []byte, pos int) *syscall.NlMsgerr {
-	return (*syscall.NlMsgerr)(unsafe.Pointer(&data[pos]))
-}
-
-func getUint16(data []byte, pos int) uint16 {
-	return *(*uint16)(unsafe.Pointer(&data[pos]))
-}
-
-func setUint16(data []byte, pos int, val uint16) {
-	*(*uint16)(unsafe.Pointer(&data[pos])) = val
-}
-
-func getUint32(data []byte, pos int) uint32 {
-	return *(*uint32)(unsafe.Pointer(&data[pos]))
-}
-
-func setUint32(data []byte, pos int, val uint32) {
-	*(*uint32)(unsafe.Pointer(&data[pos])) = val
 }
 
 
@@ -172,14 +143,14 @@ func (nlmsg *NlMsgBuilder) PutUint8Attr(typ uint16, val uint8) {
 func (nlmsg *NlMsgBuilder) PutUint16Attr(typ uint16, val uint16) {
 	nlmsg.PutAttr(typ, func () {
 		pos := nlmsg.Grow(2)
-		setUint16(nlmsg.buf, pos, val)
+		*uint16At(nlmsg.buf, pos) = val
 	})
 }
 
 func (nlmsg *NlMsgBuilder) PutUint32Attr(typ uint16, val uint32) {
 	nlmsg.PutAttr(typ, func () {
 		pos := nlmsg.Grow(4)
-		setUint32(nlmsg.buf, pos, val)
+		*uint32At(nlmsg.buf, pos) = val
 	})
 }
 
@@ -361,7 +332,7 @@ func (attrs Attrs) GetUint16(typ uint16) (uint16, error) {
 		return 0, fmt.Errorf("uint16 attribute %d has wrong length (%d bytes)", typ, len(val))
 	}
 
-	return getUint16(val, 0), nil
+	return *uint16At(val, 0), nil
 }
 
 func (attrs Attrs) GetUint32(typ uint16) (uint32, error) {
@@ -374,7 +345,7 @@ func (attrs Attrs) GetUint32(typ uint16) (uint32, error) {
 		return 0, fmt.Errorf("uint32 attribute %d has wrong length (%d bytes)", typ, len(val))
 	}
 
-	return getUint32(val, 0), nil
+	return *uint32At(val, 0), nil
 }
 
 func (attrs Attrs) GetString(typ uint16) (string, error) {
