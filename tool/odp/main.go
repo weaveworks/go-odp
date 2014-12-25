@@ -288,9 +288,12 @@ func parseTunnelId(s string) (res [8]byte, err error) {
 func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 	flow := odp.NewFlowSpec()
 
+	var inPort string
+	f.StringVar(&inPort, "in-port", "", "key: incoming vport")
+
 	var ethSrc, ethDst string
-	f.StringVar(&ethSrc, "ethsrc", "", "key: ethernet source MAC")
-	f.StringVar(&ethDst, "ethdst", "", "key: ethernet destination MAC")
+	f.StringVar(&ethSrc, "eth-src", "", "key: ethernet source MAC")
+	f.StringVar(&ethDst, "eth-dst", "", "key: ethernet destination MAC")
 
 	var setTunId, setTunIpv4Src, setTunIpv4Dst string
 	var setTunTos, setTunTtl int
@@ -308,8 +311,14 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 
 	if !f.Parse() { return flow, false }
 
+	if inPort != "" {
+		vport, err := dpif.LookupVport(inPort)
+		if err != nil { return flow, printErr("%s", err) }
+		flow.AddKey(odp.NewInPortFlowKey(vport.Handle))
+	}
+
 	if (ethSrc != "") != (ethDst != "") {
-		return flow, printErr("Must supply both 'ethsrc' and 'ethdst' options")
+		return flow, printErr("Must supply both '--eth-src' and '--eth-dst' options")
 	}
 
 	if ethSrc != "" {
@@ -317,7 +326,6 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 		if err != nil { return flow, printErr("%s", err) }
 		dst, err := parseMAC(ethDst)
 		if err != nil { return flow, printErr("%s", err) }
-
 		flow.AddKey(odp.NewEthernetFlowKey(src, dst))
 	}
 
@@ -432,10 +440,19 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 		if fk.Ignored() { continue }
 
 		switch fk := fk.(type) {
+		case odp.InPortFlowKey:
+			name, err := fk.VportHandle(dp).LookupName()
+			if err != nil {
+				return printErr("%s", err)
+			}
+
+			fmt.Printf(" --in-port=%s", name)
+			break
+
 		case odp.EthernetFlowKey:
 			s := fk.EthSrc()
 			d := fk.EthDst()
-			fmt.Printf(" --ethsrc=%s --ethdst=%s",
+			fmt.Printf(" --eth-src=%s --eth-dst=%s",
 				net.HardwareAddr(s[:]),
 				net.HardwareAddr(d[:]))
 			break
@@ -449,9 +466,12 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 	for _, a := range(flow.Actions) {
 		switch a := a.(type) {
 		case odp.OutputAction:
-			if (!printOutputAction(a, dp, dpname)) {
-				return false
+			name, err := a.VportHandle(dp).LookupName()
+			if err != nil {
+				return printErr("%s", err)
 			}
+
+			fmt.Printf(" --output=%s", name)
 			break
 
 		case odp.SetTunnelAction:
@@ -465,23 +485,6 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 	}
 
 	os.Stdout.WriteString("\n")
-	return true
-}
-
-func printOutputAction(a odp.OutputAction, dp odp.DatapathHandle, dpname string) bool {
-	vport, err := a.VportHandle(dp).Lookup()
-	if err != nil {
-		if !odp.IsNoSuchVportError(err) {
-			return printErr("%s", err)
-		}
-
-		// No vport with the port number in the flow, so just
-		// show the number
-		fmt.Printf(" --output=%d", a)
-	} else {
-		fmt.Printf(" --output=%s", vport.Spec.Name())
-	}
-
 	return true
 }
 

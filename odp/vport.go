@@ -222,6 +222,21 @@ func (h VportHandle) Lookup() (Vport, error) {
 	return Vport{h, s}, nil
 }
 
+func (h VportHandle) LookupName() (string, error) {
+	vport, err := h.Lookup()
+	if err != nil {
+		if !IsNoSuchVportError(err) {
+			return "", err
+		}
+
+		// No vport with the port number in the flow, so just
+		// show the number
+		return fmt.Sprintf("%d:%d", h.dpIfIndex, h.portNo), nil
+	}
+
+	return vport.Spec.Name(), nil
+}
+
 func (dp DatapathHandle) EnumerateVports() ([]Vport, error) {
 	dpif := dp.dpif
 	res := make([]Vport, 0)

@@ -264,17 +264,37 @@ func blobFlowKeyParser(size int, wrap func (BlobFlowKey) FlowKey) FlowKeyParser 
 
 // OVS_KEY_ATTR_IN_PORT: Incoming port number
 //
-// This flow key is problematic.  First, the kernel always does
-// an exact match for IN_PORT, i.e. it takes the mask to be 0xffffffff
-// if the key is set at all.  Second, when reporting the mask, the
-// kernel always sets the upper 16 bits, probably because port numbers
-// are 16 bits in the kernel, but IN_PORT is 32-bits.  It does this
-// even if the IN_PORT flow key was not set.  As a result, we take any
-// mask other than 0xffffffff to mean ignored.
+// This flow key is problematic.  First, the kernel always does an
+// exact match for IN_PORT, i.e. it takes the mask to be 0xffffffff if
+// the key is set at all.  Second, when reporting the mask, the kernel
+// always sets the upper 16 bits, probably because port numbers are 16
+// bits in the kernel, but 32 bits in the ABI to userspace.  It does
+// this even if the IN_PORT flow key was not set.  As a result, we
+// take any mask other than 0xffffffff to mean ignored.
+
+type InPortFlowKey struct {
+	BlobFlowKey
+}
 
 func parseInPortFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
 	if !allBytes(mask, 0xff) { for i := range(mask) { mask[i] = 0 } }
-	return parseBlobFlowKey(typ, key, mask, 4)
+	fk, err := parseBlobFlowKey(typ, key, mask, 4)
+	if err != nil { return nil, err }
+	return InPortFlowKey{fk}, nil
+}
+
+func NewInPortFlowKey(vport VportHandle) FlowKey {
+	fk := NewBlobFlowKey(OVS_KEY_ATTR_IN_PORT, 4)
+	*uint32At(fk.key(), 0) = vport.portNo
+	return fk
+}
+
+func (k InPortFlowKey) VportHandle(dp DatapathHandle) VportHandle {
+	return VportHandle{
+		dpif: dp.dpif,
+		portNo: *uint32At(k.key(), 0),
+		dpIfIndex: dp.ifindex,
+	}
 }
 
 // OVS_KEY_ATTR_ETHERNET: Ethernet header flow key
