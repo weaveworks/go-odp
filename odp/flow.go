@@ -5,6 +5,14 @@ import (
 	"fmt"
 )
 
+func allBytes(data []byte, x byte) bool {
+	for _, y := range(data) {
+		if x != y { return false }
+	}
+
+	return true
+}
+
 type FlowKey interface {
 	typeId() uint16
 	putKeyNlAttr(*NlMsgBuilder)
@@ -39,22 +47,6 @@ func (a FlowKeys) Equals(b FlowKeys) bool {
 	}
 
 	return true
-}
-
-func (keys FlowKeys) toKeyNlAttrs(msg *NlMsgBuilder, typ uint16) {
-	msg.PutNestedAttrs(typ, func () {
-		for _, k := range(keys) {
-			if !k.Ignored() { k.putKeyNlAttr(msg) }
-		}
-	})
-}
-
-func (keys FlowKeys) toMaskNlAttrs(msg *NlMsgBuilder, typ uint16) {
-	msg.PutNestedAttrs(typ, func () {
-		for _, k := range(keys) {
-			if !k.Ignored() { k.putMaskNlAttr(msg) }
-		}
-	})
 }
 
 // A FlowKeyParser describes how to parse a flow key of a particular
@@ -165,11 +157,7 @@ func (key BlobFlowKey) putMaskNlAttr(msg *NlMsgBuilder) {
 }
 
 func (key BlobFlowKey) Ignored() bool {
-	for _, b := range(key.keyMask[len(key.keyMask) / 2:]) {
-		if b != 0 { return false }
-	}
-
-	return true
+	return allBytes(key.mask(), 0)
 }
 
 // Go's anonymous struct fields are not quite a replacement for
@@ -208,20 +196,13 @@ func (a BlobFlowKey) Equals(gb FlowKey) bool {
 
 func parseBlobFlowKey(typ uint16, key []byte, mask []byte, size int) (BlobFlowKey, error) {
 	res := BlobFlowKey{typ:typ}
-	res.keyMask = make([]byte, size * 2)
 
-	if mask != nil {
-		if len(mask) != size {
-			return res, fmt.Errorf("flow key mask type %d has wrong length (expected %d bytes, got %d)", typ, size, len(mask))
-		}
-
-		copy(res.keyMask[size:], mask)
-	} else {
-		// "OVS_FLOW_ATTR_MASK: ... Omitting attribute is
-		// treated as wildcarding all corresponding fields."
-		mask = res.keyMask[size:]
-		for i := range(mask) { mask[i] = 0x00 }
+	if len(mask) != size {
+		return res, fmt.Errorf("flow key mask type %d has wrong length (expected %d bytes, got %d)", typ, size, len(mask))
 	}
+
+	res.keyMask = make([]byte, size * 2)
+	copy(res.keyMask[size:], mask)
 
 	if key != nil {
 		if len(key) != size {
@@ -230,13 +211,11 @@ func parseBlobFlowKey(typ uint16, key []byte, mask []byte, size int) (BlobFlowKe
 
 		copy(res.keyMask, key)
 	} else {
-		// The kernel does produce masks without a
-		// corresponding key.  But in such cases the mask
-		// should show that the key value is Ignored.
-		for _, mb := range(mask) {
-			if mb != 0 {
-				return res, fmt.Errorf("flow key type %d has non-zero mask without a value (mask %v)", typ, mask)
-			}
+		// The kernel produces masks without a corresponding
+		// key, but in such cases the mask should indicate
+		// that the key value is ignored.
+		if !allBytes(mask, 0) {
+			return res, fmt.Errorf("flow key type %d has non-zero mask without a value (mask %v)", typ, mask)
 		}
 	}
 
@@ -420,14 +399,6 @@ func (a TunnelFlowKey) Equals(gb FlowKey) bool {
 	return a.key == b.key && a.mask == b.mask
 }
 
-func allBytes(data []byte, x byte) bool {
-	for _, y := range(data) {
-		if x != y { return false }
-	}
-
-	return true
-}
-
 func (key TunnelFlowKey) Ignored() bool {
 	m := key.mask
 	return (!m.TunnelIdPresent || allBytes(m.TunnelId[:], 0)) &&
@@ -608,8 +579,17 @@ func (f *FlowSpec) AddAction(a Action) {
 }
 
 func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
-	f.FlowKeys.toKeyNlAttrs(msg, OVS_FLOW_ATTR_KEY)
-	f.FlowKeys.toMaskNlAttrs(msg, OVS_FLOW_ATTR_MASK)
+	msg.PutNestedAttrs(OVS_FLOW_ATTR_KEY, func () {
+		for _, k := range(f.FlowKeys) {
+			if !k.Ignored() { k.putKeyNlAttr(msg) }
+		}
+	})
+
+	msg.PutNestedAttrs(OVS_FLOW_ATTR_MASK, func () {
+		for _, k := range(f.FlowKeys) {
+			if !k.Ignored() { k.putMaskNlAttr(msg) }
+		}
+	})
 
 	// ACTIONS is required
 	msg.PutNestedAttrs(OVS_FLOW_ATTR_ACTIONS, func () {

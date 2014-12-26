@@ -1,7 +1,3 @@
-Replace uint16 map functions with switches
-
-flow.go: Tidy up after TunnelFlowKey rewrite
-
 tool: show masks
 
 tool: mask support to make ethsrc, ethdst optional
