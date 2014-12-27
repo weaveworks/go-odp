@@ -1,7 +1,3 @@
-tool: show masks
-
-tool: mask support to make ethsrc, ethdst optional
-
 tool: show datapath in ports list, support for listing all ports in
 all datapaths
 

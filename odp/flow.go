@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-func allBytes(data []byte, x byte) bool {
+func AllBytes(data []byte, x byte) bool {
 	for _, y := range(data) {
 		if x != y { return false }
 	}
@@ -157,7 +157,7 @@ func (key BlobFlowKey) putMaskNlAttr(msg *NlMsgBuilder) {
 }
 
 func (key BlobFlowKey) Ignored() bool {
-	return allBytes(key.mask(), 0)
+	return AllBytes(key.mask(), 0)
 }
 
 // Go's anonymous struct fields are not quite a replacement for
@@ -214,7 +214,7 @@ func parseBlobFlowKey(typ uint16, key []byte, mask []byte, size int) (BlobFlowKe
 		// The kernel produces masks without a corresponding
 		// key, but in such cases the mask should indicate
 		// that the key value is ignored.
-		if !allBytes(mask, 0) {
+		if !AllBytes(mask, 0) {
 			return res, fmt.Errorf("flow key type %d has non-zero mask without a value (mask %v)", typ, mask)
 		}
 	}
@@ -256,7 +256,7 @@ type InPortFlowKey struct {
 }
 
 func parseInPortFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
-	if !allBytes(mask, 0xff) { for i := range(mask) { mask[i] = 0 } }
+	if !AllBytes(mask, 0xff) { for i := range(mask) { mask[i] = 0 } }
 	fk, err := parseBlobFlowKey(typ, key, mask, 4)
 	if err != nil { return nil, err }
 	return InPortFlowKey{fk}, nil
@@ -282,20 +282,19 @@ type EthernetFlowKey struct {
 	BlobFlowKey
 }
 
-func NewEthernetFlowKey(src [ETH_ALEN]byte, dst [ETH_ALEN]byte) FlowKey {
+func NewEthernetFlowKey(key OvsKeyEthernet, mask OvsKeyEthernet) FlowKey {
 	fk := NewBlobFlowKey(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet)
-	ek := ovsKeyEthernetAt(fk.key(), 0)
-	ek.EthSrc = src
-	ek.EthDst = dst
+	*ovsKeyEthernetAt(fk.key(), 0) = key
+	*ovsKeyEthernetAt(fk.mask(), 0) = mask
 	return EthernetFlowKey{fk}
 }
 
-func (k EthernetFlowKey) EthSrc() [ETH_ALEN]byte {
-	return ovsKeyEthernetAt(k.key(), 0).EthSrc
+func (k EthernetFlowKey) Key() OvsKeyEthernet {
+	return *ovsKeyEthernetAt(k.key(), 0)
 }
 
-func (k EthernetFlowKey) EthDst() [ETH_ALEN]byte {
-	return ovsKeyEthernetAt(k.key(), 0).EthDst
+func (k EthernetFlowKey) Mask() OvsKeyEthernet {
+	return *ovsKeyEthernetAt(k.mask(), 0)
 }
 
 var ethernetFlowKeyParser = blobFlowKeyParser(SizeofOvsKeyEthernet,
@@ -401,9 +400,9 @@ func (a TunnelFlowKey) Equals(gb FlowKey) bool {
 
 func (key TunnelFlowKey) Ignored() bool {
 	m := key.mask
-	return (!m.TunnelIdPresent || allBytes(m.TunnelId[:], 0)) &&
-		(!m.Ipv4SrcPresent || allBytes(m.Ipv4Src[:], 0)) &&
-		(!m.Ipv4DstPresent || allBytes(m.Ipv4Dst[:], 0)) &&
+	return (!m.TunnelIdPresent || AllBytes(m.TunnelId[:], 0)) &&
+		(!m.Ipv4SrcPresent || AllBytes(m.Ipv4Src[:], 0)) &&
+		(!m.Ipv4DstPresent || AllBytes(m.Ipv4Dst[:], 0)) &&
 		(!m.TosPresent || m.Tos == 0) &&
 		(!m.TtlPresent || m.Ttl == 0) &&
 		!m.Df && !m.Csum

@@ -317,16 +317,9 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 		flow.AddKey(odp.NewInPortFlowKey(vport.Handle))
 	}
 
-	if (ethSrc != "") != (ethDst != "") {
-		return flow, printErr("Must supply both '--eth-src' and '--eth-dst' options")
-	}
-
-	if ethSrc != "" {
-		src, err := parseMAC(ethSrc)
+	if ethSrc != "" || ethDst != "" {
+		err := handleEthernetFlowKeyOptions(flow, ethSrc, ethDst)
 		if err != nil { return flow, printErr("%s", err) }
-		dst, err := parseMAC(ethDst)
-		if err != nil { return flow, printErr("%s", err) }
-		flow.AddKey(odp.NewEthernetFlowKey(src, dst))
 	}
 
 	// Actions are ordered, but flags aren't.  As a temporary
@@ -377,6 +370,42 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 	}
 
 	return flow, true
+}
+
+func handleEthernetFlowKeyOptions(flow odp.FlowSpec, src string, dst string) (err error)  {
+	var k odp.OvsKeyEthernet
+	var m odp.OvsKeyEthernet
+
+	k.EthSrc, m.EthSrc, err = handleEthernetAddrOption(src)
+	if err != nil { return }
+	k.EthDst, m.EthDst, err = handleEthernetAddrOption(dst)
+	if err != nil { return }
+
+	flow.AddKey(odp.NewEthernetFlowKey(k, m))
+	return
+}
+
+const ETH_ALEN = odp.ETH_ALEN
+
+func handleEthernetAddrOption(opt string) (key [ETH_ALEN]byte, mask [ETH_ALEN]byte, err error) {
+	if opt != "" {
+		var k, m string
+		i := strings.Index(opt, "&")
+		if i > 0 {
+			k = opt[:i]
+			m = opt[i+1:]
+		} else {
+			k = opt
+			m = "ff:ff:ff:ff:ff:ff"
+		}
+
+		key, err = parseMAC(k)
+		if err != nil { return }
+
+		mask, err = parseMAC(m)
+	}
+
+	return
 }
 
 func createFlow(args []string, f Flags) bool {
@@ -450,11 +479,10 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 			break
 
 		case odp.EthernetFlowKey:
-			s := fk.EthSrc()
-			d := fk.EthDst()
-			fmt.Printf(" --eth-src=%s --eth-dst=%s",
-				net.HardwareAddr(s[:]),
-				net.HardwareAddr(d[:]))
+			k := fk.Key()
+			m := fk.Mask()
+			printEthAddrOption("eth-src", k.EthSrc, m.EthSrc)
+			printEthAddrOption("eth-dst", k.EthDst, m.EthDst)
 			break
 
 		default:
@@ -486,6 +514,18 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 
 	os.Stdout.WriteString("\n")
 	return true
+}
+
+func printEthAddrOption(opt string, a [odp.ETH_ALEN]byte, m [odp.ETH_ALEN]byte) {
+	if !odp.AllBytes(m[:], 0) {
+		if odp.AllBytes(m[:], 0xff) {
+			fmt.Printf(" --%s=%s", opt, net.HardwareAddr(a[:]))
+		} else {
+			fmt.Printf(" --%s=\"%s&%s\"", opt,
+				net.HardwareAddr(a[:]),
+				net.HardwareAddr(m[:]))
+		}
+	}
 }
 
 func printSetTunnelAction(a odp.SetTunnelAction) {

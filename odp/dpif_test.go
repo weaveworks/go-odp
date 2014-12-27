@@ -198,6 +198,11 @@ func TestEnumerateVports(t *testing.T) {
 	}
 }
 
+var exactOvsKeyEthernetMask OvsKeyEthernet = OvsKeyEthernet{
+	EthSrc: [...]byte { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff },
+	EthDst: [...]byte { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff },
+}
+
 func TestCreateFlow(t *testing.T) {
 	dpif, err := NewDpif()
 	if err != nil {	t.Fatal(err) }
@@ -212,7 +217,10 @@ func TestCreateFlow(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 
 	f := NewFlowSpec()
-	f.AddKey(NewEthernetFlowKey([...]byte { 1,2,3,4,5,6 }, [...]byte { 6,5,4,3,2,1 }))
+	f.AddKey(NewEthernetFlowKey(OvsKeyEthernet{
+		EthSrc: [...]byte { 1,2,3,4,5,6 },
+		EthDst: [...]byte { 6,5,4,3,2,1 },
+	}, exactOvsKeyEthernetMask))
 	f.AddAction(NewOutputAction(vport))
 
 	err = dp.CreateFlow(f)
@@ -245,7 +253,10 @@ func TestEnumerateFlows(t *testing.T) {
 
 	for i := range(flows) {
 		flow := NewFlowSpec()
-		flow.AddKey(NewEthernetFlowKey([...]byte { 1,2,3,4,5,byte(i) }, [...]byte { 6,5,4,3,2,1 }))
+		flow.AddKey(NewEthernetFlowKey(OvsKeyEthernet{
+			EthSrc: [...]byte { 1,2,3,4,5,byte(i) },
+			EthDst: [...]byte { 6,5,4,3,2,1 },
+		}, exactOvsKeyEthernetMask))
 		flow.AddAction(NewOutputAction(vport))
 		err = dp.CreateFlow(flow)
 		if err != nil { t.Fatal(err) }
