@@ -1,11 +1,11 @@
 package odp
 
 import (
-        "syscall"
 	"fmt"
+	"syscall"
 )
 
-func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8, version uint8) (*GenlMsghdr) {
+func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8, version uint8) *GenlMsghdr {
 	pos := nlmsg.AlignGrow(syscall.NLMSG_ALIGNTO, SizeofGenlMsghdr)
 	res := genlMsghdrAt(nlmsg.buf, pos)
 	res.Cmd = cmd

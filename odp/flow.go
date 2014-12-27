@@ -1,13 +1,15 @@
 package odp
 
 import (
-	"syscall"
 	"fmt"
+	"syscall"
 )
 
 func AllBytes(data []byte, x byte) bool {
-	for _, y := range(data) {
-		if x != y { return false }
+	for _, y := range data {
+		if x != y {
+			return false
+		}
 	}
 
 	return true
@@ -24,26 +26,34 @@ type FlowKey interface {
 type FlowKeys map[uint16]FlowKey
 
 func (keys FlowKeys) Ignored() bool {
-	for _, k := range(keys) {
-		if !k.Ignored() { return false }
+	for _, k := range keys {
+		if !k.Ignored() {
+			return false
+		}
 	}
 
 	return true
 }
 
 func (a FlowKeys) Equals(b FlowKeys) bool {
-	for id, ak := range(a) {
+	for id, ak := range a {
 		bk, ok := b[id]
 		if ok {
-			if !ak.Equals(bk) { return false }
+			if !ak.Equals(bk) {
+				return false
+			}
 		} else {
-			if !ak.Ignored() { return false }
+			if !ak.Ignored() {
+				return false
+			}
 		}
 	}
 
-	for id, bk := range(b) {
+	for id, bk := range b {
 		_, ok := a[id]
-		if !ok && !bk.Ignored() { return false }
+		if !ok && !bk.Ignored() {
+			return false
+		}
 	}
 
 	return true
@@ -57,11 +67,11 @@ type FlowKeyParser struct {
 	// key may be nil if the relevant attribute wasn't provided.
 	// This generally means that the mask will indicate that the
 	// flow key is Ignored.
-	parse func (typ uint16, key []byte, mask []byte) (FlowKey, error)
+	parse func(typ uint16, key []byte, mask []byte) (FlowKey, error)
 
 	// Special mask values indicating that the flow key is an
 	// exact match or Ignored.
-	exactMask []byte
+	exactMask  []byte
 	ignoreMask []byte
 }
 
@@ -71,7 +81,7 @@ type FlowKeyParsers map[uint16]FlowKeyParser
 func parseFlowKeys(keys Attrs, masks Attrs, parsers FlowKeyParsers) (res FlowKeys, err error) {
 	res = make(FlowKeys)
 
-	for typ, key := range(keys) {
+	for typ, key := range keys {
 		parser, ok := parsers[typ]
 		if !ok {
 			return nil, fmt.Errorf("unknown flow key type %d (value %v)", typ, key)
@@ -86,9 +96,10 @@ func parseFlowKeys(keys Attrs, masks Attrs, parsers FlowKeyParsers) (res FlowKey
 			// "Omitting attribute is treated as
 			// wildcarding all corresponding fields"
 			mask, ok = masks[typ]
-			if !ok { mask = parser.ignoreMask }
+			if !ok {
+				mask = parser.ignoreMask
+			}
 		}
-
 
 		res[typ], err = parser.parse(typ, key, mask)
 		if err != nil {
@@ -97,9 +108,11 @@ func parseFlowKeys(keys Attrs, masks Attrs, parsers FlowKeyParsers) (res FlowKey
 	}
 
 	if masks != nil {
-		for typ, mask := range(masks) {
+		for typ, mask := range masks {
 			_, ok := keys[typ]
-			if ok { continue }
+			if ok {
+				continue
+			}
 
 			// flow key mask without a corresponding flow
 			// key value
@@ -130,9 +143,11 @@ type BlobFlowKey struct {
 }
 
 func NewBlobFlowKey(typ uint16, size int) BlobFlowKey {
-	km := make([]byte, size * 2)
+	km := make([]byte, size*2)
 	mask := km[size:]
-	for i := range(mask) { mask[i] = 0xff }
+	for i := range mask {
+		mask[i] = 0xff
+	}
 	return BlobFlowKey{typ: typ, keyMask: km}
 }
 
@@ -141,11 +156,11 @@ func (key BlobFlowKey) typeId() uint16 {
 }
 
 func (key BlobFlowKey) key() []byte {
-	return key.keyMask[:len(key.keyMask) / 2]
+	return key.keyMask[:len(key.keyMask)/2]
 }
 
 func (key BlobFlowKey) mask() []byte {
-	return key.keyMask[len(key.keyMask) / 2:]
+	return key.keyMask[len(key.keyMask)/2:]
 }
 
 func (key BlobFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
@@ -178,30 +193,36 @@ func (key BlobFlowKey) toBlobFlowKey() BlobFlowKey { return key }
 
 func (a BlobFlowKey) Equals(gb FlowKey) bool {
 	bx, ok := gb.(BlobFlowKeyish)
-	if !ok { return false }
+	if !ok {
+		return false
+	}
 	b := bx.toBlobFlowKey()
 
 	size := len(a.keyMask)
-	if len(b.keyMask) != size { return false }
+	if len(b.keyMask) != size {
+		return false
+	}
 	size /= 2
 
 	amask := a.keyMask[size:]
 	bmask := b.keyMask[size:]
-	for i := range(amask) {
-		if amask[i] != bmask[i] || ((a.keyMask[i] ^ b.keyMask[i]) & amask[i]) != 0 { return false }
+	for i := range amask {
+		if amask[i] != bmask[i] || ((a.keyMask[i]^b.keyMask[i])&amask[i]) != 0 {
+			return false
+		}
 	}
 
 	return true
 }
 
 func parseBlobFlowKey(typ uint16, key []byte, mask []byte, size int) (BlobFlowKey, error) {
-	res := BlobFlowKey{typ:typ}
+	res := BlobFlowKey{typ: typ}
 
 	if len(mask) != size {
 		return res, fmt.Errorf("flow key mask type %d has wrong length (expected %d bytes, got %d)", typ, size, len(mask))
 	}
 
-	res.keyMask = make([]byte, size * 2)
+	res.keyMask = make([]byte, size*2)
 	copy(res.keyMask[size:], mask)
 
 	if key != nil {
@@ -222,14 +243,18 @@ func parseBlobFlowKey(typ uint16, key []byte, mask []byte, size int) (BlobFlowKe
 	return res, nil
 }
 
-func blobFlowKeyParser(size int, wrap func (BlobFlowKey) FlowKey) FlowKeyParser {
+func blobFlowKeyParser(size int, wrap func(BlobFlowKey) FlowKey) FlowKeyParser {
 	exact := make([]byte, size)
-	for i := range(exact) { exact[i] = 0xff }
+	for i := range exact {
+		exact[i] = 0xff
+	}
 
 	return FlowKeyParser{
-		parse: func (typ uint16, key []byte, mask []byte) (FlowKey, error) {
+		parse: func(typ uint16, key []byte, mask []byte) (FlowKey, error) {
 			bfk, err := parseBlobFlowKey(typ, key, mask, size)
-			if err != nil { return nil, err }
+			if err != nil {
+				return nil, err
+			}
 			if wrap == nil {
 				return bfk, nil
 			} else {
@@ -237,7 +262,7 @@ func blobFlowKeyParser(size int, wrap func (BlobFlowKey) FlowKey) FlowKeyParser 
 			}
 		},
 		ignoreMask: make([]byte, size),
-		exactMask: exact,
+		exactMask:  exact,
 	}
 }
 
@@ -256,9 +281,15 @@ type InPortFlowKey struct {
 }
 
 func parseInPortFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
-	if !AllBytes(mask, 0xff) { for i := range(mask) { mask[i] = 0 } }
+	if !AllBytes(mask, 0xff) {
+		for i := range mask {
+			mask[i] = 0
+		}
+	}
 	fk, err := parseBlobFlowKey(typ, key, mask, 4)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	return InPortFlowKey{fk}, nil
 }
 
@@ -270,8 +301,8 @@ func NewInPortFlowKey(vport VportHandle) FlowKey {
 
 func (k InPortFlowKey) VportHandle(dp DatapathHandle) VportHandle {
 	return VportHandle{
-		dpif: dp.dpif,
-		portNo: *uint32At(k.key(), 0),
+		dpif:      dp.dpif,
+		portNo:    *uint32At(k.key(), 0),
 		dpIfIndex: dp.ifindex,
 	}
 }
@@ -298,24 +329,24 @@ func (k EthernetFlowKey) Mask() OvsKeyEthernet {
 }
 
 var ethernetFlowKeyParser = blobFlowKeyParser(SizeofOvsKeyEthernet,
-	func (fk BlobFlowKey) FlowKey { return EthernetFlowKey{fk} })
+	func(fk BlobFlowKey) FlowKey { return EthernetFlowKey{fk} })
 
 // OVS_KEY_ATTR_TUNNEL: Tunnel flow key.  This is more elaborate than
 // other flow keys because it consists of a set of attributes.
 
 type TunnelAttrs struct {
-	TunnelId [8]byte
-	Ipv4Src [4]byte
-	Ipv4Dst [4]byte
-	Tos uint8
-	Ttl uint8
-	Df bool
-	Csum bool
+	TunnelId        [8]byte
+	Ipv4Src         [4]byte
+	Ipv4Dst         [4]byte
+	Tos             uint8
+	Ttl             uint8
+	Df              bool
+	Csum            bool
 	TunnelIdPresent bool
-	Ipv4SrcPresent bool
-	Ipv4DstPresent bool
-	TosPresent bool
-	TtlPresent bool
+	Ipv4SrcPresent  bool
+	Ipv4DstPresent  bool
+	TosPresent      bool
+	TtlPresent      bool
 }
 
 func (ta TunnelAttrs) toNlAttrs(msg *NlMsgBuilder) {
@@ -350,33 +381,47 @@ func (ta TunnelAttrs) toNlAttrs(msg *NlMsgBuilder) {
 
 func parseTunnelAttrs(data []byte) (ta TunnelAttrs, err error) {
 	attrs, err := ParseNestedAttrs(data)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	ta.TunnelIdPresent, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_ID, ta.TunnelId[:])
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	ta.Ipv4SrcPresent, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_IPV4_SRC, ta.Ipv4Src[:])
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	ta.Ipv4DstPresent, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_IPV4_DST, ta.Ipv4Dst[:])
 
 	ta.Tos, ta.TosPresent, err = attrs.GetOptionalUint8(OVS_TUNNEL_KEY_ATTR_TOS)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	ta.Ttl, ta.TtlPresent, err = attrs.GetOptionalUint8(OVS_TUNNEL_KEY_ATTR_TTL)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	ta.Df, err = attrs.GetEmpty(OVS_TUNNEL_KEY_ATTR_DONT_FRAGMENT)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	ta.Csum, err = attrs.GetEmpty(OVS_TUNNEL_KEY_ATTR_CSUM)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	return
 }
 
 type TunnelFlowKey struct {
-	key TunnelAttrs
+	key  TunnelAttrs
 	mask TunnelAttrs
 }
 
@@ -394,7 +439,9 @@ func (key TunnelFlowKey) putMaskNlAttr(msg *NlMsgBuilder) {
 
 func (a TunnelFlowKey) Equals(gb FlowKey) bool {
 	b, ok := gb.(TunnelFlowKey)
-	if !ok { return false }
+	if !ok {
+		return false
+	}
 	return a.key == b.key && a.mask == b.mask
 }
 
@@ -414,17 +461,21 @@ func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
 
 	if key != nil {
 		k, err = parseTunnelAttrs(key)
-		if err != nil { return nil, err}
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if mask != nil {
 		m, err = parseTunnelAttrs(mask)
-		if err != nil { return nil, err}
+		if err != nil {
+			return nil, err
+		}
 	} else {
-		m = TunnelAttrs {
-			[8]byte { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff },
-			[4]byte { 0xff, 0xff, 0xff, 0xff },
-			[4]byte { 0xff, 0xff, 0xff, 0xff },
+		m = TunnelAttrs{
+			[8]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+			[4]byte{0xff, 0xff, 0xff, 0xff},
+			[4]byte{0xff, 0xff, 0xff, 0xff},
 			0xff, 0xff,
 			true, true,
 			true, true, true, true, true,
@@ -434,27 +485,26 @@ func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
 	return TunnelFlowKey{key: k, mask: m}, nil
 }
 
-var flowKeyParsers = FlowKeyParsers {
+var flowKeyParsers = FlowKeyParsers{
 	// Packet QoS priority flow key
 	OVS_KEY_ATTR_PRIORITY: blobFlowKeyParser(4, nil),
 
 	OVS_KEY_ATTR_IN_PORT: FlowKeyParser{
-		parse: parseInPortFlowKey,
-		exactMask: []byte { 0xff, 0xff, 0xff, 0xff },
-		ignoreMask: []byte { 0, 0, 0, 0 },
+		parse:      parseInPortFlowKey,
+		exactMask:  []byte{0xff, 0xff, 0xff, 0xff},
+		ignoreMask: []byte{0, 0, 0, 0},
 	},
 
-	OVS_KEY_ATTR_ETHERNET: ethernetFlowKeyParser,
+	OVS_KEY_ATTR_ETHERNET:  ethernetFlowKeyParser,
 	OVS_KEY_ATTR_ETHERTYPE: blobFlowKeyParser(2, nil),
-	OVS_KEY_ATTR_SKB_MARK: blobFlowKeyParser(4, nil),
+	OVS_KEY_ATTR_SKB_MARK:  blobFlowKeyParser(4, nil),
 
 	OVS_KEY_ATTR_TUNNEL: FlowKeyParser{
-		parse: parseTunnelFlowKey,
-		exactMask: nil,
-		ignoreMask: []byte {},
+		parse:      parseTunnelFlowKey,
+		exactMask:  nil,
+		ignoreMask: []byte{},
 	},
 }
-
 
 // Actions
 
@@ -472,8 +522,8 @@ func NewOutputAction(port VportHandle) OutputAction {
 
 func (oa OutputAction) VportHandle(dp DatapathHandle) VportHandle {
 	return VportHandle{
-		dpif: dp.dpif,
-		portNo: uint32(oa),
+		dpif:      dp.dpif,
+		portNo:    uint32(oa),
 		dpIfIndex: dp.ifindex,
 	}
 }
@@ -488,8 +538,10 @@ func (oa OutputAction) toNlAttr(msg *NlMsgBuilder) {
 
 func (a OutputAction) Equals(bx Action) bool {
 	b, ok := bx.(OutputAction)
-	if !ok { return false }
-	return a == b;
+	if !ok {
+		return false
+	}
+	return a == b
 }
 
 func parseOutputAction(typ uint16, data []byte) (Action, error) {
@@ -500,7 +552,6 @@ func parseOutputAction(typ uint16, data []byte) (Action, error) {
 	return OutputAction(*uint32At(data, 0)), nil
 }
 
-
 type SetTunnelAction struct {
 	TunnelAttrs
 }
@@ -510,8 +561,8 @@ func (SetTunnelAction) typeId() uint16 {
 }
 
 func (ta SetTunnelAction) toNlAttr(msg *NlMsgBuilder) {
-	msg.PutNestedAttrs(OVS_ACTION_ATTR_SET, func () {
-		msg.PutNestedAttrs(OVS_KEY_ATTR_TUNNEL, func () {
+	msg.PutNestedAttrs(OVS_ACTION_ATTR_SET, func() {
+		msg.PutNestedAttrs(OVS_KEY_ATTR_TUNNEL, func() {
 			ta.toNlAttrs(msg)
 		})
 	})
@@ -519,18 +570,21 @@ func (ta SetTunnelAction) toNlAttr(msg *NlMsgBuilder) {
 
 func (a SetTunnelAction) Equals(bx Action) bool {
 	b, ok := bx.(SetTunnelAction)
-	if !ok { return false }
+	if !ok {
+		return false
+	}
 	return a.TunnelAttrs == b.TunnelAttrs
 }
 
-
 func parseSetAction(typ uint16, data []byte) (Action, error) {
 	attrs, err := ParseNestedAttrs(data)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	var res Action
 	first := true
-	for typ, data := range(attrs) {
+	for typ, data := range attrs {
 		if !first {
 			return nil, fmt.Errorf("multiple attributes within OVS_ACTION_ATTR_SET")
 		}
@@ -538,7 +592,9 @@ func parseSetAction(typ uint16, data []byte) (Action, error) {
 		switch typ {
 		case OVS_KEY_ATTR_TUNNEL:
 			ta, err := parseTunnelAttrs(data)
-			if err != nil { return nil, err }
+			if err != nil {
+				return nil, err
+			}
 			res = SetTunnelAction{ta}
 			break
 
@@ -552,9 +608,9 @@ func parseSetAction(typ uint16, data []byte) (Action, error) {
 	return res, nil
 }
 
-var actionParsers = map[uint16](func (uint16, []byte) (Action, error)) {
+var actionParsers = map[uint16](func(uint16, []byte) (Action, error)){
 	OVS_ACTION_ATTR_OUTPUT: parseOutputAction,
-	OVS_ACTION_ATTR_SET: parseSetAction,
+	OVS_ACTION_ATTR_SET:    parseSetAction,
 }
 
 // Complete flows
@@ -578,30 +634,42 @@ func (f *FlowSpec) AddAction(a Action) {
 }
 
 func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
-	msg.PutNestedAttrs(OVS_FLOW_ATTR_KEY, func () {
-		for _, k := range(f.FlowKeys) {
-			if !k.Ignored() { k.putKeyNlAttr(msg) }
+	msg.PutNestedAttrs(OVS_FLOW_ATTR_KEY, func() {
+		for _, k := range f.FlowKeys {
+			if !k.Ignored() {
+				k.putKeyNlAttr(msg)
+			}
 		}
 	})
 
-	msg.PutNestedAttrs(OVS_FLOW_ATTR_MASK, func () {
-		for _, k := range(f.FlowKeys) {
-			if !k.Ignored() { k.putMaskNlAttr(msg) }
+	msg.PutNestedAttrs(OVS_FLOW_ATTR_MASK, func() {
+		for _, k := range f.FlowKeys {
+			if !k.Ignored() {
+				k.putMaskNlAttr(msg)
+			}
 		}
 	})
 
 	// ACTIONS is required
-	msg.PutNestedAttrs(OVS_FLOW_ATTR_ACTIONS, func () {
-		for _, a := range(f.Actions) { a.toNlAttr(msg) }
+	msg.PutNestedAttrs(OVS_FLOW_ATTR_ACTIONS, func() {
+		for _, a := range f.Actions {
+			a.toNlAttr(msg)
+		}
 	})
 }
 
 func (a FlowSpec) Equals(b FlowSpec) bool {
-	if !a.FlowKeys.Equals(b.FlowKeys) { return false }
-	if len(a.Actions) != len(b.Actions) { return false }
+	if !a.FlowKeys.Equals(b.FlowKeys) {
+		return false
+	}
+	if len(a.Actions) != len(b.Actions) {
+		return false
+	}
 
-	for i := range(a.Actions) {
-		if !a.Actions[i].Equals(b.Actions[i]) {	return false }
+	for i := range a.Actions {
+		if !a.Actions[i].Equals(b.Actions[i]) {
+			return false
+		}
 	}
 
 	return true
@@ -609,7 +677,9 @@ func (a FlowSpec) Equals(b FlowSpec) bool {
 
 func (dp DatapathHandle) checkOvsHeader(msg *NlMsgParser) error {
 	ovshdr, err := msg.takeOvsHeader()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	if ovshdr.DpIfIndex != dp.ifindex {
 		return fmt.Errorf("wrong datapath ifindex in response (got %d, expected %d)", ovshdr.DpIfIndex, dp.ifindex)
@@ -622,38 +692,56 @@ func (dp DatapathHandle) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 	f := FlowSpec{}
 
 	_, err := msg.ExpectNlMsghdr(dp.dpif.familyIds[FLOW])
-	if err != nil { return f, err }
+	if err != nil {
+		return f, err
+	}
 
 	_, err = msg.ExpectGenlMsghdr(OVS_FLOW_CMD_NEW)
-	if err != nil { return f, err }
+	if err != nil {
+		return f, err
+	}
 
 	err = dp.checkOvsHeader(msg)
-	if err != nil { return f, err }
+	if err != nil {
+		return f, err
+	}
 
 	attrs, err := msg.TakeAttrs()
-	if err != nil { return f, err }
+	if err != nil {
+		return f, err
+	}
 
 	keys, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_KEY, false)
-	if err != nil { return f, err}
+	if err != nil {
+		return f, err
+	}
 
 	masks, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_MASK, true)
-	if err != nil { return f, err}
+	if err != nil {
+		return f, err
+	}
 
 	f.FlowKeys, err = parseFlowKeys(keys, masks, flowKeyParsers)
-	if err != nil { return f, err }
+	if err != nil {
+		return f, err
+	}
 
 	actattrs, err := attrs.GetOrderedAttrs(OVS_FLOW_ATTR_ACTIONS)
-	if err != nil { return f, err }
+	if err != nil {
+		return f, err
+	}
 
 	actions := make([]Action, 0)
-	for _, actattr := range(actattrs) {
+	for _, actattr := range actattrs {
 		parser, ok := actionParsers[actattr.typ]
 		if !ok {
 			return f, fmt.Errorf("unknown action type %d (value %v)", actattr.typ, actattr.val)
 		}
 
 		action, err := parser(actattr.typ, actattr.val)
-		if err != nil { return f, err }
+		if err != nil {
+			return f, err
+		}
 		actions = append(actions, action)
 	}
 
@@ -677,8 +765,9 @@ func (dp DatapathHandle) CreateFlow(f FlowSpec) error {
 	return nil
 }
 
-type NoSuchFlowError struct {}
-func (NoSuchFlowError) Error() string {	return "no such flow" }
+type NoSuchFlowError struct{}
+
+func (NoSuchFlowError) Error() string { return "no such flow" }
 
 func (dp DatapathHandle) DeleteFlow(f FlowSpec) error {
 	dpif := dp.dpif
@@ -704,9 +793,11 @@ func (dp DatapathHandle) EnumerateFlows() ([]FlowSpec, error) {
 	req.PutGenlMsghdr(OVS_FLOW_CMD_GET, OVS_FLOW_VERSION)
 	req.putOvsHeader(dp.ifindex)
 
-	consumer := func (resp *NlMsgParser) error {
+	consumer := func(resp *NlMsgParser) error {
 		f, err := dp.parseFlowSpec(resp)
-		if err != nil {	return err }
+		if err != nil {
+			return err
+		}
 		res = append(res, f)
 		return nil
 	}

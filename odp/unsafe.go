@@ -1,8 +1,8 @@
 package odp
 
 import (
-	"unsafe"
 	"syscall"
+	"unsafe"
 )
 
 func uint16At(data []byte, pos int) *uint16 {

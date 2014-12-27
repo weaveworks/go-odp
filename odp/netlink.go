@@ -1,32 +1,32 @@
 package odp
 
 import (
-        "syscall"
 	"fmt"
-	"sync/atomic"
 	"reflect"
+	"sync/atomic"
+	"syscall"
 )
 
 func align(n int, a int) int {
-	return (n + a - 1) & -a;
+	return (n + a - 1) & -a
 }
 
 type NetlinkSocket struct {
-	fd int
+	fd   int
 	addr *syscall.SockaddrNetlink
 }
 
 func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
-        fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW, protocol)
-        if err != nil {
-                return nil, err
-        }
+	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW, protocol)
+	if err != nil {
+		return nil, err
+	}
 
 	addr := syscall.SockaddrNetlink{Family: syscall.AF_NETLINK}
-        if err := syscall.Bind(fd, &addr); err != nil {
-                syscall.Close(fd)
-                return nil, err
-        }
+	if err := syscall.Bind(fd, &addr); err != nil {
+		syscall.Close(fd)
+		return nil, err
+	}
 
 	localaddr, err := syscall.Getsockname(fd)
 	if err != nil {
@@ -35,12 +35,12 @@ func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
 	}
 
 	switch nladdr := localaddr.(type) {
-        case *syscall.SockaddrNetlink:
+	case *syscall.SockaddrNetlink:
 		return &NetlinkSocket{fd: fd, addr: nladdr}, nil
 
 	default:
 		return nil, fmt.Errorf("Expected netlink sockaddr, got %s", reflect.TypeOf(localaddr))
-        }
+	}
 }
 
 func (s *NetlinkSocket) Pid() uint32 {
@@ -48,9 +48,8 @@ func (s *NetlinkSocket) Pid() uint32 {
 }
 
 func (s *NetlinkSocket) Close() error {
-        return syscall.Close(s.fd)
+	return syscall.Close(s.fd)
 }
-
 
 type NlMsgBuilder struct {
 	buf []byte
@@ -69,7 +68,9 @@ func NewNlMsgBuilder(flags uint16, typ uint16) *NlMsgBuilder {
 // Expand the array underlying a slice to have capacity of at least l
 func expand(buf []byte, l int) []byte {
 	c := (cap(buf) + 1) * 3 / 2
-	for l > c { c = (c + 1) * 3 / 2 }
+	for l > c {
+		c = (c + 1) * 3 / 2
+	}
 	new := make([]byte, len(buf), c)
 	copy(new, buf)
 	return new
@@ -77,14 +78,18 @@ func expand(buf []byte, l int) []byte {
 
 func (nlmsg *NlMsgBuilder) Align(a int) {
 	l := align(len(nlmsg.buf), a)
-	if l > cap(nlmsg.buf) { nlmsg.buf = expand(nlmsg.buf, l) }
+	if l > cap(nlmsg.buf) {
+		nlmsg.buf = expand(nlmsg.buf, l)
+	}
 	nlmsg.buf = nlmsg.buf[:l]
 }
 
 func (nlmsg *NlMsgBuilder) Grow(size uintptr) int {
 	pos := len(nlmsg.buf)
 	l := pos + int(size)
-	if l > cap(nlmsg.buf) { nlmsg.buf = expand(nlmsg.buf, l) }
+	if l > cap(nlmsg.buf) {
+		nlmsg.buf = expand(nlmsg.buf, l)
+	}
 	nlmsg.buf = nlmsg.buf[:l]
 	return pos
 }
@@ -92,7 +97,9 @@ func (nlmsg *NlMsgBuilder) Grow(size uintptr) int {
 func (nlmsg *NlMsgBuilder) AlignGrow(a int, size uintptr) int {
 	apos := align(len(nlmsg.buf), a)
 	l := apos + int(size)
-	if l > cap(nlmsg.buf) { nlmsg.buf = expand(nlmsg.buf, l) }
+	if l > cap(nlmsg.buf) {
+		nlmsg.buf = expand(nlmsg.buf, l)
+	}
 	nlmsg.buf = nlmsg.buf[:l]
 	return apos
 }
@@ -130,25 +137,25 @@ func (nlmsg *NlMsgBuilder) PutNestedAttrs(typ uint16, gen func()) {
 }
 
 func (nlmsg *NlMsgBuilder) PutEmptyAttr(typ uint16) {
-	nlmsg.PutAttr(typ, func () {})
+	nlmsg.PutAttr(typ, func() {})
 }
 
 func (nlmsg *NlMsgBuilder) PutUint8Attr(typ uint16, val uint8) {
-	nlmsg.PutAttr(typ, func () {
+	nlmsg.PutAttr(typ, func() {
 		pos := nlmsg.Grow(1)
 		nlmsg.buf[pos] = val
 	})
 }
 
 func (nlmsg *NlMsgBuilder) PutUint16Attr(typ uint16, val uint16) {
-	nlmsg.PutAttr(typ, func () {
+	nlmsg.PutAttr(typ, func() {
 		pos := nlmsg.Grow(2)
 		*uint16At(nlmsg.buf, pos) = val
 	})
 }
 
 func (nlmsg *NlMsgBuilder) PutUint32Attr(typ uint16, val uint32) {
-	nlmsg.PutAttr(typ, func () {
+	nlmsg.PutAttr(typ, func() {
 		pos := nlmsg.Grow(4)
 		*uint32At(nlmsg.buf, pos) = val
 	})
@@ -158,15 +165,15 @@ func (nlmsg *NlMsgBuilder) putStringZ(str string) {
 	l := len(str)
 	pos := nlmsg.Grow(uintptr(l) + 1)
 	copy(nlmsg.buf[pos:], str)
-	nlmsg.buf[pos + l] = 0
+	nlmsg.buf[pos+l] = 0
 }
 
 func (nlmsg *NlMsgBuilder) PutStringAttr(typ uint16, str string) {
-	nlmsg.PutAttr(typ, func () { nlmsg.putStringZ(str) })
+	nlmsg.PutAttr(typ, func() { nlmsg.putStringZ(str) })
 }
 
 func (nlmsg *NlMsgBuilder) PutSliceAttr(typ uint16, data []byte) {
-	nlmsg.PutAttr(typ, func () {
+	nlmsg.PutAttr(typ, func() {
 		pos := nlmsg.Grow(uintptr(len(data)))
 		copy(nlmsg.buf[pos:], data)
 	})
@@ -180,7 +187,7 @@ func (err NetlinkError) Error() string {
 
 type NlMsgParser struct {
 	data []byte
-	pos int
+	pos  int
 }
 
 func (msg *NlMsgParser) nextNlMsg() (*NlMsgParser, error) {
@@ -205,7 +212,7 @@ func (msg *NlMsgParser) nextNlMsg() (*NlMsgParser, error) {
 }
 
 func (nlmsg *NlMsgParser) CheckAvailable(size uintptr) error {
-	if nlmsg.pos + int(size) > len(nlmsg.data) {
+	if nlmsg.pos+int(size) > len(nlmsg.data) {
 		return fmt.Errorf("netlink message truncated")
 	}
 
@@ -250,7 +257,7 @@ func (nlmsg *NlMsgParser) checkHeader(s *NetlinkSocket, expectedSeq uint32) (*sy
 	}
 
 	if h.Type == syscall.NLMSG_ERROR {
-		nlerr := nlMsgerrAt(nlmsg.data, nlmsg.pos + syscall.NLMSG_HDRLEN)
+		nlerr := nlMsgerrAt(nlmsg.data, nlmsg.pos+syscall.NLMSG_HDRLEN)
 
 		if nlerr.Error != 0 {
 			return nil, NetlinkError(-nlerr.Error)
@@ -290,7 +297,9 @@ func (attrs Attrs) Get(typ uint16, optional bool) ([]byte, error) {
 
 func (attrs Attrs) GetOptionalBytes(typ uint16, dest []byte) (bool, error) {
 	val, err := attrs.Get(typ, true)
-	if err != nil || val == nil { return false, err }
+	if err != nil || val == nil {
+		return false, err
+	}
 
 	if len(val) != len(dest) {
 		return false, fmt.Errorf("attribute %d has wrong length (got %d bytes, expected %d bytes)", typ, len(val), len(dest))
@@ -302,7 +311,9 @@ func (attrs Attrs) GetOptionalBytes(typ uint16, dest []byte) (bool, error) {
 
 func (attrs Attrs) GetEmpty(typ uint16) (bool, error) {
 	val, err := attrs.Get(typ, true)
-	if err != nil || val == nil { return false, err }
+	if err != nil || val == nil {
+		return false, err
+	}
 
 	if len(val) != 0 {
 		return false, fmt.Errorf("empty attribute %d has wrong length (%d bytes)", typ, len(val))
@@ -313,7 +324,9 @@ func (attrs Attrs) GetEmpty(typ uint16) (bool, error) {
 
 func (attrs Attrs) GetOptionalUint8(typ uint16) (uint8, bool, error) {
 	val, err := attrs.Get(typ, true)
-	if err != nil || val == nil { return 0, false, err }
+	if err != nil || val == nil {
+		return 0, false, err
+	}
 
 	if len(val) != 1 {
 		return 0, false, fmt.Errorf("uint8 attribute %d has wrong length (%d bytes)", typ, len(val))
@@ -355,25 +368,25 @@ func (attrs Attrs) GetString(typ uint16) (string, error) {
 	}
 
 	if len(val) == 0 {
-		return "", fmt.Errorf("string attribute %d has zero length", typ);
+		return "", fmt.Errorf("string attribute %d has zero length", typ)
 	}
 
-	if val[len(val) - 1] != 0 {
-		return "", fmt.Errorf("string attribute %d does not end with nul byte", typ);
+	if val[len(val)-1] != 0 {
+		return "", fmt.Errorf("string attribute %d does not end with nul byte", typ)
 	}
 
-	return string(val[0:len(val) - 1]), nil
+	return string(val[0 : len(val)-1]), nil
 }
 
 func (nlmsg *NlMsgParser) checkData(l uintptr, obj string) error {
-	if nlmsg.pos + int(l) <= len(nlmsg.data) {
+	if nlmsg.pos+int(l) <= len(nlmsg.data) {
 		return nil
 	} else {
-		return fmt.Errorf("truncated %s (have %d bytes, expected %d)", obj, len(nlmsg.data) - nlmsg.pos, l)
+		return fmt.Errorf("truncated %s (have %d bytes, expected %d)", obj, len(nlmsg.data)-nlmsg.pos, l)
 	}
 }
 
-func (nlmsg *NlMsgParser) parseAttrs(consumer func (uint16, []byte)) error {
+func (nlmsg *NlMsgParser) parseAttrs(consumer func(uint16, []byte)) error {
 	for {
 		apos := align(nlmsg.pos, syscall.NLA_ALIGNTO)
 		if len(nlmsg.data) <= apos {
@@ -391,8 +404,8 @@ func (nlmsg *NlMsgParser) parseAttrs(consumer func (uint16, []byte)) error {
 			return err
 		}
 
-		valpos := align(nlmsg.pos + syscall.SizeofNlAttr, syscall.NLA_ALIGNTO)
-		consumer(nla.Type, nlmsg.data[valpos:nlmsg.pos + int(nla.Len)])
+		valpos := align(nlmsg.pos+syscall.SizeofNlAttr, syscall.NLA_ALIGNTO)
+		consumer(nla.Type, nlmsg.data[valpos:nlmsg.pos+int(nla.Len)])
 		nlmsg.pos += int(nla.Len)
 	}
 
@@ -401,7 +414,7 @@ func (nlmsg *NlMsgParser) parseAttrs(consumer func (uint16, []byte)) error {
 
 func (nlmsg *NlMsgParser) TakeAttrs() (Attrs, error) {
 	res := make(Attrs)
-	err := nlmsg.parseAttrs(func (typ uint16, val []byte) {
+	err := nlmsg.parseAttrs(func(typ uint16, val []byte) {
 		res[typ] = val
 	})
 	return res, err
@@ -437,18 +450,17 @@ func (attrs Attrs) GetOrderedAttrs(typ uint16) ([]Attr, error) {
 
 	parser := NlMsgParser{data: val, pos: 0}
 	res := make([]Attr, 0)
-	err = parser.parseAttrs(func (typ uint16, val []byte) {
+	err = parser.parseAttrs(func(typ uint16, val []byte) {
 		res = append(res, Attr{typ, val})
 	})
 
 	return res, err
 }
 
-
 func (s *NetlinkSocket) send(msg *NlMsgBuilder) (uint32, error) {
 	sa := syscall.SockaddrNetlink{
 		Family: syscall.AF_NETLINK,
-		Pid: 0,
+		Pid:    0,
 		Groups: 0,
 	}
 
@@ -457,14 +469,14 @@ func (s *NetlinkSocket) send(msg *NlMsgBuilder) (uint32, error) {
 }
 
 func (s *NetlinkSocket) recv(peer uint32) (*NlMsgParser, error) {
-        buf := make([]byte, syscall.Getpagesize())
-        nr, from, err := syscall.Recvfrom(s.fd, buf, 0)
-        if err != nil {
-                return nil, err
-        }
+	buf := make([]byte, syscall.Getpagesize())
+	nr, from, err := syscall.Recvfrom(s.fd, buf, 0)
+	if err != nil {
+		return nil, err
+	}
 
 	switch nlfrom := from.(type) {
-        case *syscall.SockaddrNetlink:
+	case *syscall.SockaddrNetlink:
 		if nlfrom.Pid != peer {
 			return nil, fmt.Errorf("wrong netlink peer pid (expected %d, got %d)", peer, nlfrom.Pid)
 		}
@@ -473,7 +485,7 @@ func (s *NetlinkSocket) recv(peer uint32) (*NlMsgParser, error) {
 
 	default:
 		return nil, fmt.Errorf("Expected netlink sockaddr, got %s", reflect.TypeOf(from))
-        }
+	}
 }
 
 // Some generic netlink operations always return a reply message (e.g
@@ -484,24 +496,36 @@ const RequestFlags = syscall.NLM_F_REQUEST | syscall.NLM_F_ECHO
 // Do a netlink request that yields a single response message.
 func (s *NetlinkSocket) Request(req *NlMsgBuilder) (*NlMsgParser, error) {
 	seq, err := s.send(req)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	for {
 		resp, err := s.recv(0)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 
 		msg, err := resp.nextNlMsg()
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		if msg == nil {
 			return nil, fmt.Errorf("netlink response message missing")
 		}
 
 		h, err := msg.checkHeader(s, seq)
-		if err != nil {	return nil, err	}
-		if h == nil { continue }
+		if err != nil {
+			return nil, err
+		}
+		if h == nil {
+			continue
+		}
 
 		extra, err := resp.nextNlMsg()
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		if extra != nil {
 			return nil, fmt.Errorf("unexpected netlink message")
 		}
@@ -513,23 +537,31 @@ func (s *NetlinkSocket) Request(req *NlMsgBuilder) (*NlMsgParser, error) {
 const DumpFlags = syscall.NLM_F_DUMP | syscall.NLM_F_REQUEST
 
 // Do a netlink request that yield multiple response messages.
-func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func (*NlMsgParser) error) error {
+func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func(*NlMsgParser) error) error {
 	seq, err := s.send(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	for {
 		resp, err := s.recv(0)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 
 		msg, err := resp.nextNlMsg()
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		if msg == nil {
 			return fmt.Errorf("netlink response message missing")
 		}
 
 		for {
 			h, err := msg.checkHeader(s, seq)
-			if err != nil {	return err }
+			if err != nil {
+				return err
+			}
 
 			if h != nil {
 				if h.Type == syscall.NLMSG_DONE {
@@ -537,12 +569,18 @@ func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func (*NlMsgPar
 				}
 
 				err = consumer(msg)
-				if err != nil { return err }
+				if err != nil {
+					return err
+				}
 			}
 
 			msg, err = resp.nextNlMsg()
-			if err != nil { return err }
-			if msg == nil { break }
+			if err != nil {
+				return err
+			}
+			if msg == nil {
+				break
+			}
 		}
 	}
 }

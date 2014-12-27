@@ -1,19 +1,19 @@
 package odp
 
 import (
-	"syscall"
 	"fmt"
+	"syscall"
 )
 
 const (
-	DATAPATH = iota
-	VPORT = iota
-	FLOW = iota
-	PACKET = iota
+	DATAPATH     = iota
+	VPORT        = iota
+	FLOW         = iota
+	PACKET       = iota
 	FAMILY_COUNT = iota
 )
 
-var familyNames = [FAMILY_COUNT]string {
+var familyNames = [FAMILY_COUNT]string{
 	"ovs_datapath",
 	"ovs_vport",
 	"ovs_flow",
@@ -21,7 +21,7 @@ var familyNames = [FAMILY_COUNT]string {
 }
 
 type Dpif struct {
-	sock *NetlinkSocket
+	sock      *NetlinkSocket
 	familyIds [FAMILY_COUNT]uint16
 }
 
@@ -40,9 +40,9 @@ func lookupFamily(sock *NetlinkSocket, name string) (uint16, error) {
 
 func NewDpif() (*Dpif, error) {
 	sock, err := OpenNetlinkSocket(syscall.NETLINK_GENERIC)
-        if err != nil {
-                return nil, err
-        }
+	if err != nil {
+		return nil, err
+	}
 
 	dpif := &Dpif{sock: sock}
 
@@ -58,7 +58,9 @@ func NewDpif() (*Dpif, error) {
 }
 
 func (dpif *Dpif) Close() error {
-	if dpif.sock == nil { return nil }
+	if dpif.sock == nil {
+		return nil
+	}
 	err := dpif.sock.Close()
 	dpif.sock = nil
 	return err

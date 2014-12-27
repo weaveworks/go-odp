@@ -6,29 +6,37 @@ import (
 
 type datapathInfo struct {
 	ifindex int32
-	name string
+	name    string
 }
 
 func (dpif *Dpif) parseDatapathInfo(msg *NlMsgParser) (res datapathInfo, err error) {
 	_, err = msg.ExpectNlMsghdr(dpif.familyIds[DATAPATH])
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	_, err = msg.ExpectGenlMsghdr(OVS_DP_CMD_NEW)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	ovshdr, err := msg.takeOvsHeader()
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	res.ifindex = ovshdr.DpIfIndex
 
 	attrs, err := msg.TakeAttrs()
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	res.name, err = attrs.GetString(OVS_DP_ATTR_NAME)
 	return
 }
 
 type DatapathHandle struct {
-	dpif *Dpif
+	dpif    *Dpif
 	ifindex int32
 }
 
@@ -85,9 +93,11 @@ func (dpif *Dpif) EnumerateDatapaths() (map[string]DatapathHandle, error) {
 	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
 	req.putOvsHeader(0)
 
-	consumer := func (resp *NlMsgParser) error {
+	consumer := func(resp *NlMsgParser) error {
 		dpi, err := dpif.parseDatapathInfo(resp)
-		if err != nil {	return err }
+		if err != nil {
+			return err
+		}
 		res[dpi.name] = DatapathHandle{dpif: dpif, ifindex: dpi.ifindex}
 		return nil
 	}
@@ -106,7 +116,9 @@ func (dp DatapathHandle) Delete() error {
 	req.putOvsHeader(dp.ifindex)
 
 	_, err := dp.dpif.sock.Request(req)
-	if err != nil {	return err }
+	if err != nil {
+		return err
+	}
 
 	dp.dpif = nil
 	dp.ifindex = 0

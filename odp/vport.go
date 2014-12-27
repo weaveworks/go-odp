@@ -1,8 +1,8 @@
 package odp
 
 import (
-	"syscall"
 	"fmt"
+	"syscall"
 )
 
 type VportSpec interface {
@@ -20,10 +20,9 @@ func (v VportSpecBase) Name() string {
 	return v.name
 }
 
-
 type SimpleVportSpec struct {
 	VportSpecBase
-	typ uint32
+	typ      uint32
 	typeName string
 }
 
@@ -77,7 +76,9 @@ func NewVxlanVportSpec(name string, destPort uint16) VportSpec {
 
 func parseVxlanVportSpec(name string, opts Attrs) (VportSpec, error) {
 	destPort, err := opts.GetUint16(OVS_TUNNEL_ATTR_DST_PORT)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	return VxlanVportSpec{VportSpecBase{name}, destPort}, nil
 }
@@ -86,7 +87,7 @@ type VportHandle struct {
 	dpif *Dpif
 
 	// Port numbers are scoped to a particular datapath
-	portNo uint32
+	portNo    uint32
 	dpIfIndex int32
 }
 
@@ -94,32 +95,50 @@ func (dpif *Dpif) parseVport(msg *NlMsgParser) (h VportHandle, s VportSpec, err 
 	h.dpif = dpif
 
 	_, err = msg.ExpectNlMsghdr(dpif.familyIds[VPORT])
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	_, err = msg.ExpectGenlMsghdr(OVS_VPORT_CMD_NEW)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	ovshdr, err := msg.takeOvsHeader()
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	h.dpIfIndex = ovshdr.DpIfIndex
 
 	attrs, err := msg.TakeAttrs()
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	h.portNo, err = attrs.GetUint32(OVS_VPORT_ATTR_PORT_NO)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	typ, err := attrs.GetUint32(OVS_VPORT_ATTR_TYPE)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	name, err := attrs.GetString(OVS_VPORT_ATTR_NAME)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	opts, err := attrs.GetNestedAttrs(OVS_VPORT_ATTR_OPTIONS, true)
-	if err != nil { return }
-	if opts == nil { opts = make(Attrs) }
+	if err != nil {
+		return
+	}
+	if opts == nil {
+		opts = make(Attrs)
+	}
 
-	switch (typ) {
+	switch typ {
 	case OVS_VPORT_TYPE_NETDEV:
 		s = NewNetdevVportSpec(name)
 		break
@@ -147,7 +166,7 @@ func (dp DatapathHandle) CreateVport(spec VportSpec) (VportHandle, error) {
 	req.putOvsHeader(dp.ifindex)
 	req.PutStringAttr(OVS_VPORT_ATTR_NAME, spec.Name())
 	req.PutUint32Attr(OVS_VPORT_ATTR_TYPE, spec.typeId())
-	req.PutNestedAttrs(OVS_VPORT_ATTR_OPTIONS, func () {
+	req.PutNestedAttrs(OVS_VPORT_ATTR_OPTIONS, func() {
 		spec.optionNlAttrs(req)
 	})
 	req.PutUint32Attr(OVS_VPORT_ATTR_UPCALL_PID, dpif.sock.Pid())
@@ -171,7 +190,7 @@ func IsNoSuchVportError(err error) bool {
 
 type Vport struct {
 	Handle VportHandle
-	Spec VportSpec
+	Spec   VportSpec
 }
 
 func lookupVport(dpif *Dpif, dpifindex int32, name string) (Vport, error) {
@@ -245,9 +264,11 @@ func (dp DatapathHandle) EnumerateVports() ([]Vport, error) {
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
 	req.putOvsHeader(dp.ifindex)
 
-	consumer := func (resp *NlMsgParser) error {
+	consumer := func(resp *NlMsgParser) error {
 		h, spec, err := dpif.parseVport(resp)
-		if err != nil {	return err }
+		if err != nil {
+			return err
+		}
 		res = append(res, Vport{h, spec})
 		return nil
 	}
@@ -269,7 +290,9 @@ func (vport VportHandle) Delete() error {
 	req.PutUint32Attr(OVS_VPORT_ATTR_PORT_NO, vport.portNo)
 
 	_, err := dpif.sock.Request(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	vport.dpif = nil
 	vport.portNo = 0
