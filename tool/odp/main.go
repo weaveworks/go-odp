@@ -307,7 +307,7 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 	f.BoolVar(&setTunCsum, "set-tunnel-csum", false, "action: set tunnel checksum")
 
 	var output string
-	f.StringVar(&output, "output", "", "action: output to vport")
+	f.StringVar(&output, "output", "", "action: output to vports")
 
 	if !f.Parse() { return flow, false }
 
@@ -364,9 +364,11 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 	}
 
 	if output != "" {
-		vport, err := dpif.LookupVport(output)
-		if err != nil { return flow, printErr("%s", err) }
-		flow.AddAction(odp.NewOutputAction(vport.Handle))
+		for _, vpname := range(strings.Split(output, ",")) {
+			vport, err := dpif.LookupVport(vpname)
+			if err != nil { return flow, printErr("%s", err) }
+			flow.AddAction(odp.NewOutputAction(vport.Handle))
+		}
 	}
 
 	return flow, true
@@ -491,6 +493,8 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 		}
 	}
 
+	outputs := make([]string, 0)
+
 	for _, a := range(flow.Actions) {
 		switch a := a.(type) {
 		case odp.OutputAction:
@@ -499,7 +503,7 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 				return printErr("%s", err)
 			}
 
-			fmt.Printf(" --output=%s", name)
+			outputs = append(outputs, name)
 			break
 
 		case odp.SetTunnelAction:
@@ -510,6 +514,10 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 			fmt.Printf("%v", a)
 			break
 		}
+	}
+
+	if len(outputs) > 0 {
+		fmt.Printf(" --output=%s", strings.Join(outputs, ","))
 	}
 
 	os.Stdout.WriteString("\n")
