@@ -366,11 +366,10 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 		flow.AddKey(odp.NewInPortFlowKey(vport.Handle))
 	}
 
-	if ethSrc != "" || ethDst != "" {
-		err := handleEthernetFlowKeyOptions(flow, ethSrc, ethDst)
-		if err != nil {
-			return flow, printErr("%s", err)
-		}
+	// The ethernet flow key is mandatory
+	err := handleEthernetFlowKeyOptions(flow, ethSrc, ethDst)
+	if err != nil {
+		return flow, printErr("%s", err)
 	}
 
 	// Actions are ordered, but flags aren't.  As a temporary

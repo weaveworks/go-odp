@@ -25,16 +25,6 @@ type FlowKey interface {
 
 type FlowKeys map[uint16]FlowKey
 
-func (keys FlowKeys) Ignored() bool {
-	for _, k := range keys {
-		if !k.Ignored() {
-			return false
-		}
-	}
-
-	return true
-}
-
 func (a FlowKeys) Equals(b FlowKeys) bool {
 	for id, ak := range a {
 		bk, ok := b[id]
@@ -311,6 +301,12 @@ func (k InPortFlowKey) VportHandle(dp DatapathHandle) VportHandle {
 
 type EthernetFlowKey struct {
 	BlobFlowKey
+}
+
+func (key EthernetFlowKey) Ignored() bool {
+	// An ethernet flow key is mandatory, so don't omit it just
+	// because the mask is all zeros
+	return false
 }
 
 func NewEthernetFlowKey(key OvsKeyEthernet, mask OvsKeyEthernet) FlowKey {
