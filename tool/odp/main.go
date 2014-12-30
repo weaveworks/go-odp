@@ -403,12 +403,12 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 			ta.Ipv4DstPresent = true
 		}
 
-		if setTunTos > 0 {
+		if setTunTos >= 0 {
 			ta.Tos = uint8(setTunTos)
 			ta.TosPresent = true
 		}
 
-		if setTunTtl > 0 {
+		if setTunTtl >= 0 {
 			ta.Ttl = uint8(setTunTtl)
 			ta.TtlPresent = true
 		}
