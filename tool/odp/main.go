@@ -81,21 +81,21 @@ var commands = subcommands{
 	"datapath": possibleSubcommands{
 		command{listDatapaths, 0},
 		subcommands{
-			"create": command{createDatapath, 1},
+			"add": command{addDatapath, 1},
 			"delete": command{deleteDatapath, 1},
 		},
 	},
 	"vport": subcommands{
-		"create": subcommands{
-			"netdev":   command{createNetdevVport, 2},
-			"internal": command{createInternalVport, 2},
-			"vxlan":    command{createVxlanVport, 2},
+		"add": subcommands{
+			"netdev":   command{addNetdevVport, 2},
+			"internal": command{addInternalVport, 2},
+			"vxlan":    command{addVxlanVport, 2},
 		},
 		"delete": command{deleteVport, 1},
 		"list":   command{listVports, 1},
 	},
 	"flow": subcommands{
-		"create": command{createFlow, 1},
+		"add": command{addFlow, 1},
 		"delete": command{deleteFlow, 1},
 		"list":   command{listFlows, 1},
 	},
@@ -107,7 +107,7 @@ func main() {
 	}
 }
 
-func createDatapath(args []string, f Flags) bool {
+func addDatapath(args []string, f Flags) bool {
 	if !f.Parse() {
 		return false
 	}
@@ -173,21 +173,21 @@ func listDatapaths(_ []string, f Flags) bool {
 	return true
 }
 
-func createNetdevVport(args []string, f Flags) bool {
+func addNetdevVport(args []string, f Flags) bool {
 	if !f.Parse() {
 		return false
 	}
-	return createVport(args[0], odp.NewNetdevVportSpec(args[1]))
+	return addVport(args[0], odp.NewNetdevVportSpec(args[1]))
 }
 
-func createInternalVport(args []string, f Flags) bool {
+func addInternalVport(args []string, f Flags) bool {
 	if !f.Parse() {
 		return false
 	}
-	return createVport(args[0], odp.NewInternalVportSpec(args[1]))
+	return addVport(args[0], odp.NewInternalVportSpec(args[1]))
 }
 
-func createVxlanVport(args []string, f Flags) bool {
+func addVxlanVport(args []string, f Flags) bool {
 	var destPort uint
 	// 4789 is the IANA assigned port number for VXLAN
 	f.UintVar(&destPort, "destport", 4789, "destination UDP port number")
@@ -199,10 +199,10 @@ func createVxlanVport(args []string, f Flags) bool {
 		return printErr("destport too large")
 	}
 
-	return createVport(args[0], odp.NewVxlanVportSpec(args[1], uint16(destPort)))
+	return addVport(args[0], odp.NewVxlanVportSpec(args[1], uint16(destPort)))
 }
 
-func createVport(dpname string, spec odp.VportSpec) bool {
+func addVport(dpname string, spec odp.VportSpec) bool {
 	dpif, err := odp.NewDpif()
 	if err != nil {
 		return printErr("%s", err)
@@ -474,7 +474,7 @@ func handleEthernetAddrOption(opt string) (key [ETH_ALEN]byte, mask [ETH_ALEN]by
 	return
 }
 
-func createFlow(args []string, f Flags) bool {
+func addFlow(args []string, f Flags) bool {
 	dpif, err := odp.NewDpif()
 	if err != nil {
 		return printErr("%s", err)
