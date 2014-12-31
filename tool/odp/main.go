@@ -189,7 +189,7 @@ func createInternalVport(args []string, f Flags) bool {
 
 func createVxlanVport(args []string, f Flags) bool {
 	var destPort uint
-	// default taken from ovs/lib/netdev-vport.c
+	// 4789 is the IANA assigned port number for VXLAN
 	f.UintVar(&destPort, "destport", 4789, "destination UDP port number")
 	if !f.Parse() {
 		return false
