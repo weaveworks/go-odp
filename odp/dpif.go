@@ -32,7 +32,7 @@ func lookupFamily(sock *NetlinkSocket, name string) (uint16, error) {
 	}
 
 	if err == NetlinkError(syscall.ENOENT) {
-		return 0, fmt.Errorf("Generic netlink family '%s' unavailable; the Open vSwitch kernel module is probably not loaded", name)
+		return 0, fmt.Errorf("Generic netlink family '%s' unavailable; the Open vSwitch kernel module is probably not loaded, try 'modprobe openvswitch'", name)
 	}
 
 	return 0, err
