@@ -41,27 +41,44 @@ type Flags struct {
 	args []string
 }
 
-func (f Flags) Parse() bool {
-	f.FlagSet.Parse(f.args)
-	if f.NArg() > 0 {
-		return printErr("Excess arguments")
+func (f Flags) Parse(minArgs int, maxArgs int) []string {
+	// The flag package doesn't allow options and non-option args
+	// to be mixed.  But we want to allow non-options first.  Work
+	// around the issue by looking for the first option.
+	firstOpt := findFirstOpt(f.args)
+	f.FlagSet.Parse(f.args[firstOpt:])
+	args := append(f.args[:firstOpt], f.Args()...)
+
+	if len(args) > maxArgs {
+		printErr("Excess arguments")
+		os.Exit(1)
 	}
-	return true
+
+	if len(args) < minArgs {
+		printErr("Insufficient arguments")
+		os.Exit(1)
+	}
+
+	return args
+}
+
+func findFirstOpt(args []string) int {
+	for i, arg := range(args) {
+		if len(arg) > 0 && arg[0] == '-' {
+			return i
+		}
+	}
+
+	return len(args)
 }
 
 type command struct {
-	cmd       func([]string, Flags) bool
-	fixedArgs int
+	cmd       func(Flags) bool
 }
 
 func (cmd command) run(args []string, pos int) bool {
-	if len(args) < pos+cmd.fixedArgs {
-		return printErr("Insufficient arguments")
-	}
-
 	f := flag.NewFlagSet(strings.Join(args[:pos], " "), flag.ExitOnError)
-	n := pos + cmd.fixedArgs
-	return cmd.cmd(args[pos:n], Flags{f, args[n:]})
+	return cmd.cmd(Flags{f, args[pos:]})
 }
 
 type possibleSubcommands struct {
@@ -79,25 +96,25 @@ func (cmds possibleSubcommands) run(args []string, pos int) bool {
 
 var commands = subcommands{
 	"datapath": possibleSubcommands{
-		command{listDatapaths, 0},
+		command{listDatapaths},
 		subcommands{
-			"add": command{addDatapath, 1},
-			"delete": command{deleteDatapath, 1},
+			"add": command{addDatapath},
+			"delete": command{deleteDatapath},
 		},
 	},
 	"vport": subcommands{
 		"add": subcommands{
-			"netdev":   command{addNetdevVport, 2},
-			"internal": command{addInternalVport, 2},
-			"vxlan":    command{addVxlanVport, 2},
+			"netdev":   command{addNetdevVport},
+			"internal": command{addInternalVport},
+			"vxlan":    command{addVxlanVport},
 		},
-		"delete": command{deleteVport, 1},
-		"list":   command{listVports, 1},
+		"delete": command{deleteVport},
+		"list":   command{listVports},
 	},
 	"flow": subcommands{
-		"add": command{addFlow, 1},
-		"delete": command{deleteFlow, 1},
-		"list":   command{listFlows, 1},
+		"add": command{addFlow},
+		"delete": command{deleteFlow},
+		"list":   command{listFlows},
 	},
 }
 
@@ -107,10 +124,8 @@ func main() {
 	}
 }
 
-func addDatapath(args []string, f Flags) bool {
-	if !f.Parse() {
-		return false
-	}
+func addDatapath(f Flags) bool {
+	args := f.Parse(1, 1)
 
 	dpif, err := odp.NewDpif()
 	if err != nil {
@@ -126,10 +141,8 @@ func addDatapath(args []string, f Flags) bool {
 	return true
 }
 
-func deleteDatapath(args []string, f Flags) bool {
-	if !f.Parse() {
-		return false
-	}
+func deleteDatapath(f Flags) bool {
+	args := f.Parse(1, 1)
 
 	dpif, err := odp.NewDpif()
 	if err != nil {
@@ -154,10 +167,8 @@ func deleteDatapath(args []string, f Flags) bool {
 	return true
 }
 
-func listDatapaths(_ []string, f Flags) bool {
-	if !f.Parse() {
-		return false
-	}
+func listDatapaths(f Flags) bool {
+	f.Parse(0, 0)
 
 	dpif, err := odp.NewDpif()
 	if err != nil {
@@ -173,27 +184,21 @@ func listDatapaths(_ []string, f Flags) bool {
 	return true
 }
 
-func addNetdevVport(args []string, f Flags) bool {
-	if !f.Parse() {
-		return false
-	}
+func addNetdevVport(f Flags) bool {
+	args := f.Parse(2, 2)
 	return addVport(args[0], odp.NewNetdevVportSpec(args[1]))
 }
 
-func addInternalVport(args []string, f Flags) bool {
-	if !f.Parse() {
-		return false
-	}
+func addInternalVport(f Flags) bool {
+	args := f.Parse(2, 2)
 	return addVport(args[0], odp.NewInternalVportSpec(args[1]))
 }
 
-func addVxlanVport(args []string, f Flags) bool {
+func addVxlanVport(f Flags) bool {
 	var destPort uint
 	// 4789 is the IANA assigned port number for VXLAN
 	f.UintVar(&destPort, "destport", 4789, "destination UDP port number")
-	if !f.Parse() {
-		return false
-	}
+	args := f.Parse(2, 2)
 
 	if destPort > 65535 {
 		return printErr("destport too large")
@@ -222,10 +227,8 @@ func addVport(dpname string, spec odp.VportSpec) bool {
 	return true
 }
 
-func deleteVport(args []string, f Flags) bool {
-	if !f.Parse() {
-		return false
-	}
+func deleteVport(f Flags) bool {
+	args := f.Parse(1, 1)
 
 	dpif, err := odp.NewDpif()
 	if err != nil {
@@ -250,10 +253,8 @@ func deleteVport(args []string, f Flags) bool {
 	return true
 }
 
-func listVports(args []string, f Flags) bool {
-	if !f.Parse() {
-		return false
-	}
+func listVports(f Flags) bool {
+	args := f.Parse(1, 1)
 
 	dpif, err := odp.NewDpif()
 	if err != nil {
@@ -330,8 +331,8 @@ func parseTunnelId(s string) (res [8]byte, err error) {
 	return
 }
 
-func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
-	flow := odp.NewFlowSpec()
+func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (dp odp.DatapathHandle, flow odp.FlowSpec, ok bool) {
+	flow = odp.NewFlowSpec()
 
 	var inPort string
 	f.StringVar(&inPort, "in-port", "", "key: incoming vport")
@@ -354,14 +355,13 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 	var output string
 	f.StringVar(&output, "output", "", "action: output to vports")
 
-	if !f.Parse() {
-		return flow, false
-	}
+	args := f.Parse(1, 1)
 
 	if inPort != "" {
 		vport, err := dpif.LookupVport(inPort)
 		if err != nil {
-			return flow, printErr("%s", err)
+			printErr("%s", err)
+			return
 		}
 		flow.AddKey(odp.NewInPortFlowKey(vport.Handle))
 	}
@@ -369,7 +369,8 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 	// The ethernet flow key is mandatory
 	err := handleEthernetFlowKeyOptions(flow, ethSrc, ethDst)
 	if err != nil {
-		return flow, printErr("%s", err)
+		printErr("%s", err)
+		return
 	}
 
 	// Actions are ordered, but flags aren't.  As a temporary
@@ -382,7 +383,8 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 		if setTunId != "" {
 			ta.TunnelId, err = parseTunnelId(setTunId)
 			if err != nil {
-				return flow, printErr("%s", err)
+				printErr("%s", err)
+				return
 			}
 			ta.TunnelIdPresent = true
 		}
@@ -390,7 +392,8 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 		if setTunIpv4Src != "" {
 			ta.Ipv4Src, err = parseIpv4(setTunIpv4Src)
 			if err != nil {
-				return flow, printErr("%s", err)
+				printErr("%s", err)
+				return
 			}
 			ta.Ipv4SrcPresent = true
 		}
@@ -398,7 +401,8 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 		if setTunIpv4Dst != "" {
 			ta.Ipv4Dst, err = parseIpv4(setTunIpv4Dst)
 			if err != nil {
-				return flow, printErr("%s", err)
+				printErr("%s", err)
+				return
 			}
 			ta.Ipv4DstPresent = true
 		}
@@ -423,13 +427,20 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (odp.FlowSpec, bool) {
 		for _, vpname := range strings.Split(output, ",") {
 			vport, err := dpif.LookupVport(vpname)
 			if err != nil {
-				return flow, printErr("%s", err)
+				printErr("%s", err)
+				return
 			}
 			flow.AddAction(odp.NewOutputAction(vport.Handle))
 		}
 	}
 
-	return flow, true
+	dp, err = dpif.LookupDatapath(args[0])
+	if err != nil {
+		printErr("%s", err)
+		return
+	}
+
+	return dp, flow, true
 }
 
 func handleEthernetFlowKeyOptions(flow odp.FlowSpec, src string, dst string) (err error) {
@@ -474,21 +485,16 @@ func handleEthernetAddrOption(opt string) (key [ETH_ALEN]byte, mask [ETH_ALEN]by
 	return
 }
 
-func addFlow(args []string, f Flags) bool {
+func addFlow(f Flags) bool {
 	dpif, err := odp.NewDpif()
 	if err != nil {
 		return printErr("%s", err)
 	}
 	defer dpif.Close()
 
-	flow, ok := flagsToFlowSpec(f, dpif)
+	dp, flow, ok := flagsToFlowSpec(f, dpif)
 	if !ok {
 		return false
-	}
-
-	dp, err := dpif.LookupDatapath(args[0])
-	if err != nil {
-		return printErr("%s", err)
 	}
 
 	err = dp.CreateFlow(flow)
@@ -499,21 +505,16 @@ func addFlow(args []string, f Flags) bool {
 	return true
 }
 
-func deleteFlow(args []string, f Flags) bool {
+func deleteFlow(f Flags) bool {
 	dpif, err := odp.NewDpif()
 	if err != nil {
 		return printErr("%s", err)
 	}
 	defer dpif.Close()
 
-	flow, ok := flagsToFlowSpec(f, dpif)
+	dp, flow, ok := flagsToFlowSpec(f, dpif)
 	if !ok {
 		return false
-	}
-
-	dp, err := dpif.LookupDatapath(args[0])
-	if err != nil {
-		return printErr("%s", err)
 	}
 
 	err = dp.DeleteFlow(flow)
@@ -524,10 +525,8 @@ func deleteFlow(args []string, f Flags) bool {
 	return true
 }
 
-func listFlows(args []string, f Flags) bool {
-	if !f.Parse() {
-		return false
-	}
+func listFlows(f Flags) bool {
+	args := f.Parse(1, 1)
 
 	dpif, err := odp.NewDpif()
 	if err != nil {
