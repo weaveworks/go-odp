@@ -565,7 +565,7 @@ func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func(*NlMsgPars
 
 			if h != nil {
 				if h.Type == syscall.NLMSG_DONE {
-					return nil
+					return processNlMsgDone(msg)
 				}
 
 				err = consumer(msg)
@@ -582,5 +582,24 @@ func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func(*NlMsgPars
 				break
 			}
 		}
+	}
+}
+
+func processNlMsgDone(msg *NlMsgParser) error {
+	err := msg.Advance(syscall.SizeofNlMsghdr)
+	if err != nil {
+		return err
+	}
+
+	err = msg.checkData(4, "NLMSG_DONE error code")
+	if err != nil {
+		return err
+	}
+
+	errno := *int32At(msg.data, msg.pos)
+	if errno == 0 {
+		return nil
+	} else {
+		return NetlinkError(-errno)
 	}
 }
