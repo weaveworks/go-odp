@@ -254,7 +254,7 @@ func deleteVport(f Flags) bool {
 }
 
 func listVports(f Flags) bool {
-	args := f.Parse(1, 1)
+	args := f.Parse(0, 1)
 
 	dpif, err := odp.NewDpif()
 	if err != nil {
@@ -262,15 +262,42 @@ func listVports(f Flags) bool {
 	}
 	defer dpif.Close()
 
-	dp, err := dpif.LookupDatapath(args[0])
+	if len(args) == 0 {
+		// Although vport names are global, rather than being
+		// scoped to a datapath, odp can only enumerate the
+		// vports within a datapath.  So enumerating them all
+		// is a bit of a faff.
+		dps, err := dpif.EnumerateDatapaths()
+		if err != nil {
+			return printErr("%s", err)
+		}
+
+		for dpname, dp := range dps {
+			if !printVports(dpname, dp) {
+				return false
+			}
+		}
+
+		return true
+	} else {
+		dp, err := dpif.LookupDatapath(args[0])
+		if err != nil {
+			return printErr("%s", err)
+		}
+
+		return printVports(args[0], dp)
+	}
+}
+
+func printVports(dpname string, dp odp.DatapathHandle) bool {
+	vports, err := dp.EnumerateVports()
 	if err != nil {
 		return printErr("%s", err)
 	}
 
-	vports, err := dp.EnumerateVports()
 	for _, vport := range vports {
 		spec := vport.Spec
-		fmt.Printf("%s %s", spec.TypeName(), spec.Name())
+		fmt.Printf("%s %s %s", spec.TypeName(), dpname, spec.Name())
 
 		switch spec := spec.(type) {
 		case odp.VxlanVportSpec:
