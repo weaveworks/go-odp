@@ -169,7 +169,7 @@ func (dp DatapathHandle) CreateVport(spec VportSpec) (VportHandle, error) {
 	req.PutNestedAttrs(OVS_VPORT_ATTR_OPTIONS, func() {
 		spec.optionNlAttrs(req)
 	})
-	req.PutUint32Attr(OVS_VPORT_ATTR_UPCALL_PID, dpif.sock.Pid())
+	req.PutUint32Attr(OVS_VPORT_ATTR_UPCALL_PID, dpif.sock.PortId())
 
 	resp, err := dpif.sock.Request(req)
 	if err != nil {

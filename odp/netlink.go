@@ -43,7 +43,7 @@ func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
 	}
 }
 
-func (s *NetlinkSocket) Pid() uint32 {
+func (s *NetlinkSocket) PortId() uint32 {
 	return s.addr.Pid
 }
 
@@ -190,35 +190,6 @@ type NlMsgParser struct {
 	pos  int
 }
 
-func (msg *NlMsgParser) nextNlMsg() (*NlMsgParser, error) {
-	pos := msg.pos
-	avail := len(msg.data) - pos
-	if avail <= 0 {
-		return nil, nil
-	}
-
-	if avail < syscall.SizeofNlMsghdr {
-		return nil, fmt.Errorf("netlink message header truncated")
-	}
-
-	h := nlMsghdrAt(msg.data, pos)
-	if avail < int(h.Len) {
-		return nil, fmt.Errorf("netlink message truncated (%d bytes available, %d expected)", avail, h.Len)
-	}
-
-	end := pos + int(h.Len)
-	msg.pos = align(end, syscall.NLMSG_ALIGNTO)
-	return &NlMsgParser{data: msg.data[:end], pos: pos}, nil
-}
-
-func (nlmsg *NlMsgParser) CheckAvailable(size uintptr) error {
-	if nlmsg.pos+int(size) > len(nlmsg.data) {
-		return fmt.Errorf("netlink message truncated")
-	}
-
-	return nil
-}
-
 func (nlmsg *NlMsgParser) Advance(size uintptr) error {
 	if err := nlmsg.CheckAvailable(size); err != nil {
 		return err
@@ -238,10 +209,45 @@ func (nlmsg *NlMsgParser) AlignAdvance(a int, size uintptr) (int, error) {
 	return pos, nil
 }
 
-func (nlmsg *NlMsgParser) checkHeader(s *NetlinkSocket, expectedSeq uint32) (*syscall.NlMsghdr, error) {
-	h := nlMsghdrAt(nlmsg.data, nlmsg.pos)
-	if h.Pid != s.Pid() {
-		return nil, fmt.Errorf("netlink reply pid mismatch (got %d, expected %d)", h.Pid, s.Pid())
+func (nlmsg *NlMsgParser) NlMsghdr() *syscall.NlMsghdr {
+	return nlMsghdrAt(nlmsg.data, nlmsg.pos)
+}
+
+func (msg *NlMsgParser) nextNlMsg() (*NlMsgParser, error) {
+	pos := msg.pos
+	avail := len(msg.data) - pos
+	if avail <= 0 {
+		return nil, nil
+	}
+
+	if avail < syscall.SizeofNlMsghdr {
+		return nil, fmt.Errorf("netlink message header truncated")
+	}
+
+	h := msg.NlMsghdr()
+	if avail < int(h.Len) {
+		return nil, fmt.Errorf("netlink message truncated (%d bytes available, %d expected)", avail, h.Len)
+	}
+
+	end := pos + int(h.Len)
+	msg.pos = align(end, syscall.NLMSG_ALIGNTO)
+	return &NlMsgParser{data: msg.data[:end], pos: pos}, nil
+}
+
+func (nlmsg *NlMsgParser) CheckAvailable(size uintptr) error {
+	if nlmsg.pos+int(size) > len(nlmsg.data) {
+		return fmt.Errorf("netlink message truncated")
+	}
+
+	return nil
+}
+
+func (nlmsg *NlMsgParser) checkHeader(expectedPortId uint32, expectedSeq uint32) (relevant bool, err error) {
+	// nextNlMsg checks that there is an nlmsghdr-worth of data
+	// present
+	h := nlmsg.NlMsghdr()
+	if h.Pid != expectedPortId {
+		return true, fmt.Errorf("netlink reply port id mismatch (got %d, expected %d)", h.Pid, expectedPortId)
 	}
 
 	if h.Seq != expectedSeq {
@@ -253,25 +259,25 @@ func (nlmsg *NlMsgParser) checkHeader(s *NetlinkSocket, expectedSeq uint32) (*sy
 		// indicate bugs, so it is sometimes nice to see them
 		// in development.
 		fmt.Printf("netlink reply sequence number mismatch (got %d, expected %d)\n", h.Seq, expectedSeq)
-		return nil, nil
+		return false, nil
 	}
 
 	if h.Type == syscall.NLMSG_ERROR {
 		nlerr := nlMsgerrAt(nlmsg.data, nlmsg.pos+syscall.NLMSG_HDRLEN)
 
 		if nlerr.Error != 0 {
-			return nil, NetlinkError(-nlerr.Error)
+			return true, NetlinkError(-nlerr.Error)
 		}
 
 		// an error code of 0 means the erorr is an ack, so
 		// return normally.
 	}
 
-	return h, nil
+	return true, nil
 }
 
 func (nlmsg *NlMsgParser) ExpectNlMsghdr(typ uint16) (*syscall.NlMsghdr, error) {
-	h := nlMsghdrAt(nlmsg.data, nlmsg.pos)
+	h := nlmsg.NlMsghdr()
 
 	if err := nlmsg.Advance(syscall.SizeofNlMsghdr); err != nil {
 		return nil, err
@@ -488,61 +494,7 @@ func (s *NetlinkSocket) recv(peer uint32) (*NlMsgParser, error) {
 	}
 }
 
-// Some generic netlink operations always return a reply message (e.g
-// *_GET), others don't by default (e.g. *_NEW).  In the latter case,
-// NLM_F_ECHO forces a reply.  This is undocumented AFAICT.
-const RequestFlags = syscall.NLM_F_REQUEST | syscall.NLM_F_ECHO
-
-// Do a netlink request that yields a single response message.
-func (s *NetlinkSocket) Request(req *NlMsgBuilder) (*NlMsgParser, error) {
-	seq, err := s.send(req)
-	if err != nil {
-		return nil, err
-	}
-
-	for {
-		resp, err := s.recv(0)
-		if err != nil {
-			return nil, err
-		}
-
-		msg, err := resp.nextNlMsg()
-		if err != nil {
-			return nil, err
-		}
-		if msg == nil {
-			return nil, fmt.Errorf("netlink response message missing")
-		}
-
-		h, err := msg.checkHeader(s, seq)
-		if err != nil {
-			return nil, err
-		}
-		if h == nil {
-			continue
-		}
-
-		extra, err := resp.nextNlMsg()
-		if err != nil {
-			return nil, err
-		}
-		if extra != nil {
-			return nil, fmt.Errorf("unexpected netlink message")
-		}
-
-		return msg, nil
-	}
-}
-
-const DumpFlags = syscall.NLM_F_DUMP | syscall.NLM_F_REQUEST
-
-// Do a netlink request that yield multiple response messages.
-func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func(*NlMsgParser) error) error {
-	seq, err := s.send(req)
-	if err != nil {
-		return err
-	}
-
+func (s *NetlinkSocket) Receive(expectedPortId uint32, expectedSeq uint32, consumer func(*NlMsgParser) (bool, error)) error {
 	for {
 		resp, err := s.recv(0)
 		if err != nil {
@@ -558,18 +510,14 @@ func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func(*NlMsgPars
 		}
 
 		for {
-			h, err := msg.checkHeader(s, seq)
+			relevant, err := msg.checkHeader(expectedPortId, expectedSeq)
 			if err != nil {
 				return err
 			}
 
-			if h != nil {
-				if h.Type == syscall.NLMSG_DONE {
-					return processNlMsgDone(msg)
-				}
-
-				err = consumer(msg)
-				if err != nil {
+			if relevant {
+				done, err := consumer(msg)
+				if done || err != nil {
 					return err
 				}
 			}
@@ -583,6 +531,48 @@ func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func(*NlMsgPars
 			}
 		}
 	}
+}
+
+// Some generic netlink operations always return a reply message (e.g
+// *_GET), others don't by default (e.g. *_NEW).  In the latter case,
+// NLM_F_ECHO forces a reply.  This is undocumented AFAICT.
+const RequestFlags = syscall.NLM_F_REQUEST | syscall.NLM_F_ECHO
+
+// Do a netlink request that yields a single response message.
+func (s *NetlinkSocket) Request(req *NlMsgBuilder) (resp *NlMsgParser, err error) {
+	seq, err := s.send(req)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.Receive(s.PortId(), seq, func(msg *NlMsgParser) (bool, error) {
+		resp = msg
+		return true, nil
+	})
+	return
+}
+
+const DumpFlags = syscall.NLM_F_DUMP | syscall.NLM_F_REQUEST
+
+// Do a netlink request that yield multiple response messages.
+func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func(*NlMsgParser) error) error {
+	seq, err := s.send(req)
+	if err != nil {
+		return err
+	}
+
+	return s.Receive(s.PortId(), seq, func(msg *NlMsgParser) (bool, error) {
+		if msg.NlMsghdr().Type == syscall.NLMSG_DONE {
+			return true, processNlMsgDone(msg)
+		}
+
+		err = consumer(msg)
+		if err != nil {
+			return true, err
+		}
+
+		return false, nil
+	})
 }
 
 func processNlMsgDone(msg *NlMsgParser) error {
