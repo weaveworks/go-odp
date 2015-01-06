@@ -1,6 +1,7 @@
 package odp
 
 import (
+	"fmt"
 	"syscall"
 )
 
@@ -122,5 +123,18 @@ func (dp DatapathHandle) Delete() error {
 
 	dp.dpif = nil
 	dp.ifindex = 0
+	return nil
+}
+
+func (dp DatapathHandle) checkOvsHeader(msg *NlMsgParser) error {
+	ovshdr, err := msg.takeOvsHeader()
+	if err != nil {
+		return err
+	}
+
+	if ovshdr.DpIfIndex != dp.ifindex {
+		return fmt.Errorf("wrong datapath ifindex received (got %d, expected %d)", ovshdr.DpIfIndex, dp.ifindex)
+	}
+
 	return nil
 }

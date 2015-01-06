@@ -51,6 +51,7 @@ const (
 	OVS_DATAPATH_VERSION = 2
 	OVS_VPORT_VERSION    = 1
 	OVS_FLOW_VERSION     = 1
+	OVS_PACKET_VERSION   = 1
 )
 
 const ( // ovs_datapath_cmd
@@ -68,6 +69,11 @@ const ( // ovs_datapath_attr
 	OVS_DP_ATTR_STATS          = 3
 	OVS_DP_ATTR_MEGAFLOW_STATS = 4
 	OVS_DP_ATTR_USER_FEATURES  = 5
+)
+
+const (
+	OVS_DP_F_UNALIGNED  = 1
+	OVS_DP_F_VPORT_PIDS = 2
 )
 
 const ( // ovs_vport_cmd
@@ -171,7 +177,17 @@ const ( // ovs_action_attr
 	OVS_ACTION_ATTR_SAMPLE    = 6
 )
 
-const (
-	OVS_DP_F_UNALIGNED  = 1
-	OVS_DP_F_VPORT_PIDS = 2
+const ( // ovs_packet_cmd
+	OVS_PACKET_CMD_UNSPEC  = 0
+	OVS_PACKET_CMD_MISS    = 1
+	OVS_PACKET_CMD_ACTION  = 2
+	OVS_PACKET_CMD_EXECUTE = 3
+)
+
+const ( // ovs_packet_attr
+	OVS_PACKET_ATTR_UNSPEC   = 0
+	OVS_PACKET_ATTR_PACKET   = 1
+	OVS_PACKET_ATTR_KEY      = 2
+	OVS_PACKET_ATTR_ACTIONS  = 3
+	OVS_PACKET_ATTR_USERDATA = 4
 )

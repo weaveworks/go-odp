@@ -671,19 +671,6 @@ func (a FlowSpec) Equals(b FlowSpec) bool {
 	return true
 }
 
-func (dp DatapathHandle) checkOvsHeader(msg *NlMsgParser) error {
-	ovshdr, err := msg.takeOvsHeader()
-	if err != nil {
-		return err
-	}
-
-	if ovshdr.DpIfIndex != dp.ifindex {
-		return fmt.Errorf("wrong datapath ifindex in response (got %d, expected %d)", ovshdr.DpIfIndex, dp.ifindex)
-	}
-
-	return nil
-}
-
 func (dp DatapathHandle) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 	f := FlowSpec{}
 

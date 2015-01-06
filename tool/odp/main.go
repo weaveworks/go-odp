@@ -5,9 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"github.com/dpw/go-odp/odp"
+	"io"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
+	"time"
+	"unsafe"
 )
 
 func printErr(f string, a ...interface{}) bool {
@@ -63,7 +67,7 @@ func (f Flags) Parse(minArgs int, maxArgs int) []string {
 }
 
 func findFirstOpt(args []string) int {
-	for i, arg := range(args) {
+	for i, arg := range args {
 		if len(arg) > 0 && arg[0] == '-' {
 			return i
 		}
@@ -73,7 +77,7 @@ func findFirstOpt(args []string) int {
 }
 
 type command struct {
-	cmd       func(Flags) bool
+	cmd func(Flags) bool
 }
 
 func (cmd command) run(args []string, pos int) bool {
@@ -98,8 +102,9 @@ var commands = subcommands{
 	"datapath": possibleSubcommands{
 		command{listDatapaths},
 		subcommands{
-			"add": command{addDatapath},
+			"add":    command{addDatapath},
 			"delete": command{deleteDatapath},
+			"listen": command{listenOnDatapath},
 		},
 	},
 	"vport": subcommands{
@@ -112,7 +117,7 @@ var commands = subcommands{
 		"list":   command{listVports},
 	},
 	"flow": subcommands{
-		"add": command{addFlow},
+		"add":    command{addFlow},
 		"delete": command{deleteFlow},
 		"list":   command{listFlows},
 	},
@@ -165,6 +170,111 @@ func deleteDatapath(f Flags) bool {
 	}
 
 	return true
+}
+
+func listenOnDatapath(f Flags) bool {
+	args := f.Parse(1, 1)
+
+	dpif, err := odp.NewDpif()
+	if err != nil {
+		return printErr("%s", err)
+	}
+	defer dpif.Close()
+
+	dp, err := dpif.LookupDatapath(args[0])
+	if err != nil {
+		return printErr("%s", err)
+	}
+
+	if odp.IsNoSuchDatapathError(err) {
+		return printErr("Cannot find datapath \"%s\"", args[0])
+	}
+
+	pipe, err := openTcpdump()
+	if err != nil {
+		return printErr("Error starting tcpdump: %s", err)
+	}
+
+	dp.ConsumeMisses(func(attrs odp.Attrs) error {
+		return writeTcpdumpPacket(pipe, time.Now(), attrs[odp.OVS_PACKET_ATTR_PACKET])
+
+		//fmt.Printf("XXX %v\n", attrs)
+		// return nil
+	}, func(err error) {
+		fmt.Printf("Error: %s\n", err)
+	})
+
+	// wait forever
+	ch := make(chan int, 1)
+	for {
+		_ = <-ch
+	}
+}
+
+type pcapHeader struct {
+	magicNumber  uint32
+	versionMajor uint16
+	versionMinor uint16
+	thisZone     int32
+	sigFigs      uint32
+	snapLen      uint32
+	network      uint32
+}
+
+type pcapPacketHeader struct {
+	sec     uint32
+	usec    uint32
+	inclLen uint32
+	origLen uint32
+}
+
+func openTcpdump() (io.Writer, error) {
+	tcpdump := exec.Command("tcpdump", "-U", "-r", "-")
+
+	pipe, err := tcpdump.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+
+	tcpdump.Stdout = os.Stdout
+	tcpdump.Stderr = os.Stderr
+
+	err = tcpdump.Start()
+	if err != nil {
+		return nil, err
+	}
+
+	var header [unsafe.Sizeof(pcapHeader{})]byte
+	*(*pcapHeader)(unsafe.Pointer(&header[0])) = pcapHeader{
+		magicNumber:  0xa1b23c4d, // nanosecond times
+		versionMajor: 2,
+		versionMinor: 4,
+		thisZone:     0,
+		sigFigs:      0,
+		snapLen:      65535,
+		network:      1, // ethernet frames
+	}
+
+	_, err = pipe.Write(header[:])
+	return pipe, err
+}
+
+func writeTcpdumpPacket(pipe io.Writer, t time.Time, data []byte) error {
+	var header [unsafe.Sizeof(pcapPacketHeader{})]byte
+	*(*pcapPacketHeader)(unsafe.Pointer(&header[0])) = pcapPacketHeader{
+		sec:     uint32(t.Unix()),
+		usec:    uint32(t.Nanosecond()), // nanosecond field despite name
+		inclLen: uint32(len(data)),
+		origLen: uint32(len(data)),
+	}
+
+	_, err := pipe.Write(header[:])
+	if err != nil {
+		return err
+	}
+
+	_, err = pipe.Write(data)
+	return err
 }
 
 func listDatapaths(f Flags) bool {
