@@ -244,7 +244,7 @@ func openTcpdump() (io.Writer, error) {
 		return nil, err
 	}
 
-	var header [unsafe.Sizeof(pcapHeader{})]byte
+	header := odp.MakeAlignedByteSlice(int(unsafe.Sizeof(pcapHeader{})))
 	*(*pcapHeader)(unsafe.Pointer(&header[0])) = pcapHeader{
 		magicNumber:  0xa1b23c4d, // nanosecond times
 		versionMajor: 2,
@@ -255,12 +255,12 @@ func openTcpdump() (io.Writer, error) {
 		network:      1, // ethernet frames
 	}
 
-	_, err = pipe.Write(header[:])
+	_, err = pipe.Write(header)
 	return pipe, err
 }
 
 func writeTcpdumpPacket(pipe io.Writer, t time.Time, data []byte) error {
-	var header [unsafe.Sizeof(pcapPacketHeader{})]byte
+	header := odp.MakeAlignedByteSlice(int(unsafe.Sizeof(pcapPacketHeader{})))
 	*(*pcapPacketHeader)(unsafe.Pointer(&header[0])) = pcapPacketHeader{
 		sec:     uint32(t.Unix()),
 		usec:    uint32(t.Nanosecond()), // nanosecond field despite name
@@ -268,7 +268,7 @@ func writeTcpdumpPacket(pipe io.Writer, t time.Time, data []byte) error {
 		origLen: uint32(len(data)),
 	}
 
-	_, err := pipe.Write(header[:])
+	_, err := pipe.Write(header)
 	if err != nil {
 		return err
 	}

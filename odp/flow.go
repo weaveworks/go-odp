@@ -133,7 +133,7 @@ type BlobFlowKey struct {
 }
 
 func NewBlobFlowKey(typ uint16, size int) BlobFlowKey {
-	km := make([]byte, size*2)
+	km := MakeAlignedByteSlice(size * 2)
 	mask := km[size:]
 	for i := range mask {
 		mask[i] = 0xff
@@ -212,7 +212,7 @@ func parseBlobFlowKey(typ uint16, key []byte, mask []byte, size int) (BlobFlowKe
 		return res, fmt.Errorf("flow key mask type %d has wrong length (expected %d bytes, got %d)", typ, size, len(mask))
 	}
 
-	res.keyMask = make([]byte, size*2)
+	res.keyMask = MakeAlignedByteSlice(size * 2)
 	copy(res.keyMask[size:], mask)
 
 	if key != nil {

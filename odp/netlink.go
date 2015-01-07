@@ -56,8 +56,7 @@ type NlMsgBuilder struct {
 }
 
 func NewNlMsgBuilder(flags uint16, typ uint16) *NlMsgBuilder {
-	//buf := make([]byte, syscall.NLMSG_HDRLEN, syscall.Getpagesize())
-	buf := make([]byte, syscall.NLMSG_HDRLEN, syscall.NLMSG_HDRLEN)
+	buf := MakeAlignedByteSlice(syscall.NLMSG_HDRLEN)
 	nlmsg := &NlMsgBuilder{buf: buf}
 	h := nlMsghdrAt(buf, 0)
 	h.Flags = flags
@@ -71,7 +70,7 @@ func expand(buf []byte, l int) []byte {
 	for l > c {
 		c = (c + 1) * 3 / 2
 	}
-	new := make([]byte, len(buf), c)
+	new := MakeAlignedByteSliceCap(len(buf), c)
 	copy(new, buf)
 	return new
 }
@@ -475,7 +474,7 @@ func (s *NetlinkSocket) send(msg *NlMsgBuilder) (uint32, error) {
 }
 
 func (s *NetlinkSocket) recv(peer uint32) (*NlMsgParser, error) {
-	buf := make([]byte, syscall.Getpagesize())
+	buf := MakeAlignedByteSlice(syscall.Getpagesize())
 	nr, from, err := syscall.Recvfrom(s.fd, buf, 0)
 	if err != nil {
 		return nil, err

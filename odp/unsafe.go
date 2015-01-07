@@ -5,6 +5,21 @@ import (
 	"unsafe"
 )
 
+const ALIGN_BUFFERS = 8
+
+// A normal slice or array allocation is not guaranteed to be aligned.
+// Unaligned access are slow on some architectures and blow up on
+// others.  So this allocates a slice aligned to ALIGN_BUFFERS.
+func MakeAlignedByteSliceCap(len int, cap int) []byte {
+	b := make([]byte, cap+ALIGN_BUFFERS-1)
+	off := int(uintptr(unsafe.Pointer(&b[0])) & (ALIGN_BUFFERS - 1))
+	return b[off : len+off]
+}
+
+func MakeAlignedByteSlice(len int) []byte {
+	return MakeAlignedByteSliceCap(len, len)
+}
+
 func uint16At(data []byte, pos int) *uint16 {
 	return (*uint16)(unsafe.Pointer(&data[pos]))
 }
