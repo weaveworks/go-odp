@@ -24,6 +24,15 @@ func (nlmsg *NlMsgParser) ExpectGenlMsghdr(cmd uint8) (*GenlMsghdr, error) {
 		return nil, fmt.Errorf("generic netlink response has wrong cmd (got %d, expected %d)", gh.Cmd, cmd)
 	}
 
+	// Deliberately ignore the version field in the genl header.
+	// It's unclear exactly what its meaning is, and how we should
+	// handle it.  E.g., if the version is higher than we expect,
+	// should we still try to handle the message?  It's unclear,
+	// but the fact that ODP bumped the kernel
+	// OVS_DATAPATH_VERSION from 1 to 2 while expecting existing
+	// userspace to keep working suggests that we should be
+	// libreral in what we accept.
+
 	return gh, nil
 }
 
