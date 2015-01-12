@@ -104,17 +104,21 @@ var commands = subcommands{
 		subcommands{
 			"add":    command{addDatapath},
 			"delete": command{deleteDatapath},
+			"list":   command{listDatapaths},
 			"listen": command{listenOnDatapath},
 		},
 	},
-	"vport": subcommands{
-		"add": subcommands{
-			"netdev":   command{addNetdevVport},
-			"internal": command{addInternalVport},
-			"vxlan":    command{addVxlanVport},
+	"vport": possibleSubcommands{
+		command{listVports},
+		subcommands{
+			"add": subcommands{
+				"netdev":   command{addNetdevVport},
+				"internal": command{addInternalVport},
+				"vxlan":    command{addVxlanVport},
+			},
+			"delete": command{deleteVport},
+			"list":   command{listVports},
 		},
-		"delete": command{deleteVport},
-		"list":   command{listVports},
 	},
 	"flow": subcommands{
 		"add":    command{addFlow},
