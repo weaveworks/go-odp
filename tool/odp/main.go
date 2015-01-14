@@ -309,16 +309,16 @@ func addInternalVport(f Flags) bool {
 }
 
 func addVxlanVport(f Flags) bool {
-	var destPort uint
+	var port uint
 	// 4789 is the IANA assigned port number for VXLAN
-	f.UintVar(&destPort, "destport", 4789, "destination UDP port number")
+	f.UintVar(&port, "port", 4789, "UDP port number")
 	args := f.Parse(2, 2)
 
-	if destPort > 65535 {
-		return printErr("destport too large")
+	if port > 65535 {
+		return printErr("port number too large")
 	}
 
-	return addVport(args[0], odp.NewVxlanVportSpec(args[1], uint16(destPort)))
+	return addVport(args[0], odp.NewVxlanVportSpec(args[1], uint16(port)))
 }
 
 func addVport(dpname string, spec odp.VportSpec) bool {
@@ -415,7 +415,7 @@ func printVports(dpname string, dp odp.DatapathHandle) bool {
 
 		switch spec := spec.(type) {
 		case odp.VxlanVportSpec:
-			fmt.Printf(" --destport=%d", spec.DestPort)
+			fmt.Printf(" --port=%d", spec.Port)
 			break
 		}
 

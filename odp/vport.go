@@ -55,7 +55,7 @@ func NewInternalVportSpec(name string) VportSpec {
 
 type VxlanVportSpec struct {
 	VportSpecBase
-	DestPort uint16
+	Port uint16
 }
 
 func (VxlanVportSpec) TypeName() string {
@@ -67,20 +67,20 @@ func (VxlanVportSpec) typeId() uint32 {
 }
 
 func (v VxlanVportSpec) optionNlAttrs(req *NlMsgBuilder) {
-	req.PutUint16Attr(OVS_TUNNEL_ATTR_DST_PORT, v.DestPort)
+	req.PutUint16Attr(OVS_TUNNEL_ATTR_DST_PORT, v.Port)
 }
 
-func NewVxlanVportSpec(name string, destPort uint16) VportSpec {
-	return VxlanVportSpec{VportSpecBase{name}, destPort}
+func NewVxlanVportSpec(name string, port uint16) VportSpec {
+	return VxlanVportSpec{VportSpecBase{name}, port}
 }
 
 func parseVxlanVportSpec(name string, opts Attrs) (VportSpec, error) {
-	destPort, err := opts.GetUint16(OVS_TUNNEL_ATTR_DST_PORT)
+	port, err := opts.GetUint16(OVS_TUNNEL_ATTR_DST_PORT)
 	if err != nil {
 		return nil, err
 	}
 
-	return VxlanVportSpec{VportSpecBase{name}, destPort}, nil
+	return VxlanVportSpec{VportSpecBase{name}, port}, nil
 }
 
 type VportHandle struct {
