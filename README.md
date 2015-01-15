@@ -165,7 +165,7 @@ The currently supported actions are:
   (names are comma separated rather than given by multiple options due
   to limitations in golang's flag package).
 
-* `--set-tunnel-id=<hex bytes>`, `--set-tunnel-ipv4-src=<ipv4 address>`, `--set-tunnel-ipv4-dst=<ipv4 address>`, `--set-tunnel-tos=<ipv4 ToS byte value>`, `--set-tunnel-ttl=<ipv4 TTL value>', `--set-tunnel-df=<DF flag boolean>`, `--set-tunnel-csum=<boolean>`: set tunnel attributes; see the VXLAN section below.
+* `--set-tunnel-id=<hex bytes>`, `--set-tunnel-ipv4-src=<ipv4 address>`, `--set-tunnel-ipv4-dst=<ipv4 address>`, `--set-tunnel-tos=<ipv4 ToS byte value>`, `--set-tunnel-ttl=<ipv4 TTL value>`, `--set-tunnel-df=<DF flag boolean>`, `--set-tunnel-csum=<boolean>`: set tunnel attributes; see the VXLAN section below.
 
 ### VXLAN
 
