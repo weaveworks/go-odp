@@ -40,12 +40,10 @@ datapath is:
 * A set of *flows*.  Flows are rules saying which packets belong to
   the flow (the *key*) and what should be done with those packets (the
   actions).  A flow key is specified as a set of packet attribute
-  values.  Most kinds of packet attributes are header fields within
-  the packet data (e.g. the source MAC address), but not all (e.g. the
-  vport through which the packet entered the datapath is an
-  attribute).  So, for example, a flow could select packets with a
-  certain destination MAC address and, as its action, send them out on
-  a particular vport.
+  values (the set of packet attributes available is defined by ODP).
+  So, for example, a flow could, as its flow key, select packets with
+  a certain destination MAC address and, as its action, send them out
+  on a particular vport.
 
 Note that when processing a packet, the order in which the flows are
 evaluated is unspecified, and the first flow to match "wins" (its
@@ -54,6 +52,14 @@ actions are executed).
 If no flows match a packet, then the packet is considered a *miss*.  A
 userspace process can register to receive miss notifications, which
 include the full packet data.
+
+As mentioned, flows match a packet based on its attributes.  Most of
+these attributes correspond to fields in the packet data, but there
+are also attributes that represent data attached to the packet as it
+passes through the datapath.  For example, the vport through which the
+packet entered the datapath is available as an attribute, and there
+are tunnel attributes which are important to VXLAN encapsulation,
+discussed below.
 
 ## Installation
 
@@ -68,6 +74,11 @@ The ODP module needs to be explicitly loaded:
     sudo modprobe openvswitch
 
 ## Command line tool
+
+This section describes the use of the `odp` command line tool.  The
+operations available through this tool map more or less directly onto
+the operations exposed by the Open vSwitch datapath over netlink, and
+are a good way to understand what the ODP interface looks like.
 
 ### Datapaths
 
@@ -98,8 +109,8 @@ Or just the vports within a datapath with:
 
     $GOPATH/bin/odp vport list <datapath name>
 
-The format of these listings corresponds to how vports are specified
-to the `vport add` command.
+Each line describes a vport.  The format corresponds to how vports are
+specified to the `vport add` command, described below.
 
 #### Netdev vports
 
@@ -114,16 +125,94 @@ Note that this hijacks all the traffic from the netdev, preventing its
 normal use.  Also, a netdev can only be attached to a single datapath
 at a time.
 
-#### Vxlan vports
+#### VXLAN vports
 
-A vxlan vport encapsulates and decapsulates VXLAN packets.  See the
-vxlan section below.
+A VXLAN vport encapsulates and decapsulates VXLAN packets.  See the
+VXLAN section below.
 
 ### Flows
 
+List the flows within a datapath with:
+
+    $GOPATH/bin/odp flow list <datapath name>
+
+Each line describes a flows.  The format corresponds to how flows are
+specified to the `flow add` command.
+
+The general syntax for creating a flow is:
+
+    $GOPATH/bin/odp flow add <datapath name> <flow key options> <flow action options>
+
+They can only be one flow with a given key.  Adding another flow with
+the same key as one that already exists simply assigns new actions to
+the existing flow.
+
+The currently supported flow key options are:
+
+* `--in-port=<vport name>`: match packets that arrived on the given vport.
+
+* `--eth-src=<MAC address>[:<MAC mask>]`: match packets with the given
+  ethernet source MAC address.  An optional bitmask for the match can
+  be specified, expressed in the usual MAC address sytax.
+
+* `--eth-dst=<MAC address>[:<MAC mask>]`: match packets with the given
+  ethernet destination MAC address, with an optional bitmask for the
+  match.
+
+The currently supported actions are:
+
+* `--output=<vport names>`: output the packet on the given vports
+  (names are comma separated rather than given by multiple options due
+  to limitations in golang's flag package).
+
+* `--set-tunnel-id=<hex bytes>`, `--set-tunnel-ipv4-src=<ipv4 address>`, `--set-tunnel-ipv4-dst=<ipv4 address>`, `--set-tunnel-tos=<ipv4 ToS byte value>`, `--set-tunnel-ttl=<ipv4 TTL value>', `--set-tunnel-df=<DF flag boolean>`, `--set-tunnel-csum=<boolean>`: set tunnel attributes; see the VXLAN section below.
+
+### VXLAN
+
+The way ODP specifies VXLAN packet encapsulation is somewhat
+intricate, so it's easier to consider decapsulation first (i.e. how an
+incoming VXLAN packet gets handled, resulting in the payload packet
+being placed onto the datapath).
+
+A VXLAN port is created with
+
+    $GOPATH/bin/odp vport add vxlan --port=<port number>
+
+The `--port` option specifies the UDP port to bind to for receiving
+VXLAN packets.  The socket is not bound to a specific address (i.e. it
+does the equivalent of binding with `INADDR_ANY`), and the port cannot
+be shared.  If the `--port` option is omitted, it defaults to 4789,
+the IANA assign port number for VXLAN.
+
+When a VXLAN packet arrives to the specified UDP socket, it is
+decapsulated and the payload packet is injected through the vport into
+the datapath.  (Underlay-network packet information is attached to the
+packet as the tunnel attributes and so made available to flows,
+although the `odp` command line tool does not yet support the relevant
+flow keys.)
+
+Conversely, a packet can be encapsulated by outputting it from the
+datapath through a VXLAN vport.  Several parameters are needed to
+produce a VXLAN packet, e.g. the IP address to send the packet to.
+These parameters are obtained from the tunnel attributes attached to
+the packet.  The `OVS_ACTION_ATTR_SET` flow action is used to set the
+tunnel attributes, exposed through the `--set-tunnel-*` options.  So a
+flow that performs VXLAN encapsulation has two elements: Setting the
+tunnel attributes, and then outputting the packet on a VXLAN vport.
+For example:
+
+    $GOPATH/bin/odp flow add dp --in-port=ethx --set-tunnel-ipv4-src=10.0.0.112 --set-tunnel-ipv4-dst=10.0.0.113 --set-tunnel-ttl=64 --output=vx
+
+The `--set-tunnel-id` option can be used to set the VXLAN network
+identifier (VNI) field on the VXLAN packets.
+
+The destination UDP port for the VXLAN packets is the port number
+setting for the outgoing VXLAN vport (the same port number that is
+used for binding).  The source UDP port for the VXLAN packets cannot
+be configured; it is based on a hash of inner packet fields, as
+recommended in pRFC7348](https://tools.ietf.org/html/rfc7348).
+
+### Upcalls
+
 TODO
-
-## Vxlan
-
-
 
