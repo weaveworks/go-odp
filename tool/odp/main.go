@@ -31,13 +31,25 @@ func (cmds subcommands) run(args []string, pos int) bool {
 		return printErr("Subcommand required by \"%s\".  Try \"%s help\"", strings.Join(args[:pos], " "), args[0])
 	}
 
-	cd, ok := cmds[args[pos]]
+	var match commandDispatch
+	matches := 0
 
-	if !ok {
+	for name, cd := range cmds {
+		if strings.HasPrefix(name, args[pos]) {
+			match = cd
+			matches++
+		}
+	}
+
+	if matches == 0 {
 		return printErr("Unknown command \"%s\".  Try \"%s help\"", strings.Join(args[:pos+1], " "), args[0])
 	}
 
-	return cd.run(args, pos+1)
+	if matches > 1 {
+		return printErr("Ambiguous command \"%s\".  Try \"%s help\"", strings.Join(args[:pos+1], " "), args[0])
+	}
+
+	return match.run(args, pos+1)
 }
 
 type Flags struct {
