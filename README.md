@@ -159,6 +159,8 @@ The currently supported flow key options are:
   ethernet destination MAC address, with an optional bitmask for the
   match.
 
+* `--tunnel-id=<hex bytes>`, `--tunnel-ipv4-src=<ipv4 address>`, `--tunnel-ipv4-dst=<ipv4 address>`, `--tunnel-tos=<ipv4 ToS byte value>`, `--tunnel-ttl=<ipv4 TTL value>`, `--tunnel-df=<DF flag boolean>`, `--tunnel-csum=<boolean>`: tunnel attributes; see the VXLAN section below.
+
 The currently supported actions are:
 
 * `--output=<vport names>`: output the packet on the given vports
@@ -186,10 +188,9 @@ the IANA assign port number for VXLAN.
 
 When a VXLAN packet arrives to the specified UDP socket, it is
 decapsulated and the payload packet is injected through the vport into
-the datapath.  (Underlay-network packet information is attached to the
-packet as the tunnel attributes and so made available to flows,
-although the `odp` command line tool does not yet support the relevant
-flow keys.)
+the datapath.  Underlay-network packet information is attached to the
+packet as the tunnel attributes and so made available for flow
+matching, using the `--tunnel-*` flow key options.
 
 Conversely, a packet can be encapsulated by outputting it from the
 datapath through a VXLAN vport.  Several parameters are needed to
@@ -201,7 +202,8 @@ flow that performs VXLAN encapsulation has two elements: Setting the
 tunnel attributes, and then outputting the packet on a VXLAN vport.
 For example:
 
-    $GOPATH/bin/odp flow add dp --in-port=ethx --set-tunnel-ipv4-src=10.0.0.112 --set-tunnel-ipv4-dst=10.0.0.113 --set-tunnel-ttl=64 --output=vx
+    $GOPATH/bin/odp flow add dp --in-port=ethx --set-tunnel-ipv4-src=10.0.0.112 \
+        --set-tunnel-ipv4-dst=10.0.0.113 --set-tunnel-ttl=64 --output=vx
 
 The `--set-tunnel-id` option can be used to set the VXLAN network
 identifier (VNI) field on the VXLAN packets.

@@ -331,84 +331,112 @@ var ethernetFlowKeyParser = blobFlowKeyParser(SizeofOvsKeyEthernet,
 // other flow keys because it consists of a set of attributes.
 
 type TunnelAttrs struct {
-	TunnelId        [8]byte
-	Ipv4Src         [4]byte
-	Ipv4Dst         [4]byte
-	Tos             uint8
-	Ttl             uint8
-	Df              bool
-	Csum            bool
-	TunnelIdPresent bool
-	Ipv4SrcPresent  bool
-	Ipv4DstPresent  bool
-	TosPresent      bool
-	TtlPresent      bool
+	TunnelId [8]byte
+	Ipv4Src  [4]byte
+	Ipv4Dst  [4]byte
+	Tos      uint8
+	Ttl      uint8
+	Df       bool
+	Csum     bool
 }
 
-func (ta TunnelAttrs) toNlAttrs(msg *NlMsgBuilder) {
-	if ta.TunnelIdPresent {
+type TunnelAttrsPresence struct {
+	TunnelId bool
+	Ipv4Src  bool
+	Ipv4Dst  bool
+	Tos      bool
+	Ttl      bool
+	Df       bool
+	Csum     bool
+}
+
+var ExactTunnelAttrsMask TunnelAttrs = TunnelAttrs{
+	[8]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+	[4]byte{0xff, 0xff, 0xff, 0xff},
+	[4]byte{0xff, 0xff, 0xff, 0xff},
+	0xff, 0xff,
+	true, true,
+}
+
+// Extract presence information from a TunnelAttrs mask
+func (ta TunnelAttrs) present() TunnelAttrsPresence {
+	return TunnelAttrsPresence{
+		TunnelId: !AllBytes(ta.TunnelId[:], 0),
+		Ipv4Src:  !AllBytes(ta.Ipv4Src[:], 0),
+		Ipv4Dst:  !AllBytes(ta.Ipv4Dst[:], 0),
+		Tos:      ta.Tos != 0,
+		Ttl:      ta.Ttl != 0,
+		Df:       ta.Df,
+		Csum:     ta.Csum,
+	}
+}
+
+func (ta TunnelAttrs) toNlAttrs(msg *NlMsgBuilder, present TunnelAttrsPresence) {
+	if present.TunnelId {
 		msg.PutSliceAttr(OVS_TUNNEL_KEY_ATTR_ID, ta.TunnelId[:])
 	}
 
-	if ta.Ipv4SrcPresent {
+	if present.Ipv4Src {
 		msg.PutSliceAttr(OVS_TUNNEL_KEY_ATTR_IPV4_SRC, ta.Ipv4Src[:])
 	}
 
-	if ta.Ipv4DstPresent {
+	if present.Ipv4Dst {
 		msg.PutSliceAttr(OVS_TUNNEL_KEY_ATTR_IPV4_DST, ta.Ipv4Dst[:])
 	}
 
-	if ta.TosPresent {
+	if present.Tos {
 		msg.PutUint8Attr(OVS_TUNNEL_KEY_ATTR_TOS, ta.Tos)
 	}
 
-	if ta.TtlPresent {
+	if present.Ttl {
 		msg.PutUint8Attr(OVS_TUNNEL_KEY_ATTR_TTL, ta.Ttl)
 	}
 
-	if ta.Df {
+	if present.Df && ta.Df {
 		msg.PutEmptyAttr(OVS_TUNNEL_KEY_ATTR_DONT_FRAGMENT)
 	}
 
-	if ta.Csum {
+	if present.Csum && ta.Csum {
 		msg.PutEmptyAttr(OVS_TUNNEL_KEY_ATTR_CSUM)
 	}
 }
 
-func parseTunnelAttrs(data []byte) (ta TunnelAttrs, err error) {
+func parseTunnelAttrs(data []byte) (ta TunnelAttrs, present TunnelAttrsPresence, err error) {
 	attrs, err := ParseNestedAttrs(data)
 	if err != nil {
 		return
 	}
 
-	ta.TunnelIdPresent, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_ID, ta.TunnelId[:])
+	present.TunnelId, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_ID, ta.TunnelId[:])
 	if err != nil {
 		return
 	}
 
-	ta.Ipv4SrcPresent, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_IPV4_SRC, ta.Ipv4Src[:])
+	present.Ipv4Src, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_IPV4_SRC, ta.Ipv4Src[:])
 	if err != nil {
 		return
 	}
 
-	ta.Ipv4DstPresent, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_IPV4_DST, ta.Ipv4Dst[:])
+	present.Ipv4Dst, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_IPV4_DST, ta.Ipv4Dst[:])
 
-	ta.Tos, ta.TosPresent, err = attrs.GetOptionalUint8(OVS_TUNNEL_KEY_ATTR_TOS)
+	ta.Tos, present.Tos, err = attrs.GetOptionalUint8(OVS_TUNNEL_KEY_ATTR_TOS)
 	if err != nil {
 		return
 	}
 
-	ta.Ttl, ta.TtlPresent, err = attrs.GetOptionalUint8(OVS_TUNNEL_KEY_ATTR_TTL)
+	ta.Ttl, present.Ttl, err = attrs.GetOptionalUint8(OVS_TUNNEL_KEY_ATTR_TTL)
 	if err != nil {
 		return
 	}
 
 	ta.Df, err = attrs.GetEmpty(OVS_TUNNEL_KEY_ATTR_DONT_FRAGMENT)
+	present.Df = ta.Df
 	if err != nil {
 		return
 	}
 
 	ta.Csum, err = attrs.GetEmpty(OVS_TUNNEL_KEY_ATTR_CSUM)
+	present.Csum = ta.Csum
 	if err != nil {
 		return
 	}
@@ -421,16 +449,32 @@ type TunnelFlowKey struct {
 	mask TunnelAttrs
 }
 
+func NewTunnelFlowKey(key TunnelAttrs, mask TunnelAttrs) TunnelFlowKey {
+	return TunnelFlowKey{key: key, mask: mask}
+}
+
+func (fk TunnelFlowKey) Key() TunnelAttrs {
+	return fk.key
+}
+
+func (fk TunnelFlowKey) Mask() TunnelAttrs {
+	return fk.mask
+}
+
 func (TunnelFlowKey) typeId() uint16 {
 	return OVS_KEY_ATTR_TUNNEL
 }
 
 func (key TunnelFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
-	key.key.toNlAttrs(msg)
+	msg.PutNestedAttrs(OVS_KEY_ATTR_TUNNEL, func() {
+		key.key.toNlAttrs(msg, key.mask.present())
+	})
 }
 
 func (key TunnelFlowKey) putMaskNlAttr(msg *NlMsgBuilder) {
-	key.mask.toNlAttrs(msg)
+	msg.PutNestedAttrs(OVS_KEY_ATTR_TUNNEL, func() {
+		key.mask.toNlAttrs(msg, key.mask.present())
+	})
 }
 
 func (a TunnelFlowKey) Equals(gb FlowKey) bool {
@@ -443,11 +487,11 @@ func (a TunnelFlowKey) Equals(gb FlowKey) bool {
 
 func (key TunnelFlowKey) Ignored() bool {
 	m := key.mask
-	return (!m.TunnelIdPresent || AllBytes(m.TunnelId[:], 0)) &&
-		(!m.Ipv4SrcPresent || AllBytes(m.Ipv4Src[:], 0)) &&
-		(!m.Ipv4DstPresent || AllBytes(m.Ipv4Dst[:], 0)) &&
-		(!m.TosPresent || m.Tos == 0) &&
-		(!m.TtlPresent || m.Ttl == 0) &&
+	return AllBytes(m.TunnelId[:], 0) &&
+		AllBytes(m.Ipv4Src[:], 0) &&
+		AllBytes(m.Ipv4Dst[:], 0) &&
+		m.Tos == 0 &&
+		m.Ttl == 0 &&
 		!m.Df && !m.Csum
 }
 
@@ -456,29 +500,25 @@ func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
 	var err error
 
 	if key != nil {
-		k, err = parseTunnelAttrs(key)
+		k, _, err = parseTunnelAttrs(key)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	if mask != nil {
-		m, err = parseTunnelAttrs(mask)
+		// We don't care about mask presence information, because a
+		// missing mask attribute means the field is
+		// wildcarded
+		m, _, err = parseTunnelAttrs(mask)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		m = TunnelAttrs{
-			[8]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
-			[4]byte{0xff, 0xff, 0xff, 0xff},
-			[4]byte{0xff, 0xff, 0xff, 0xff},
-			0xff, 0xff,
-			true, true,
-			true, true, true, true, true,
-		}
+		m = ExactTunnelAttrsMask
 	}
 
-	return TunnelFlowKey{key: k, mask: m}, nil
+	return TunnelFlowKey{key: k, mask: m}, err
 }
 
 var flowKeyParsers = FlowKeyParsers{
@@ -550,6 +590,11 @@ func parseOutputAction(typ uint16, data []byte) (Action, error) {
 
 type SetTunnelAction struct {
 	TunnelAttrs
+	TunnelIdPresent bool
+	Ipv4SrcPresent  bool
+	Ipv4DstPresent  bool
+	TosPresent      bool
+	TtlPresent      bool
 }
 
 func (SetTunnelAction) typeId() uint16 {
@@ -559,7 +604,15 @@ func (SetTunnelAction) typeId() uint16 {
 func (ta SetTunnelAction) toNlAttr(msg *NlMsgBuilder) {
 	msg.PutNestedAttrs(OVS_ACTION_ATTR_SET, func() {
 		msg.PutNestedAttrs(OVS_KEY_ATTR_TUNNEL, func() {
-			ta.toNlAttrs(msg)
+			ta.toNlAttrs(msg, TunnelAttrsPresence{
+				TunnelId: ta.TunnelIdPresent,
+				Ipv4Src:  ta.Ipv4SrcPresent,
+				Ipv4Dst:  ta.Ipv4DstPresent,
+				Tos:      ta.TosPresent,
+				Ttl:      ta.TtlPresent,
+				Df:       ta.Df,
+				Csum:     ta.Csum,
+			})
 		})
 	})
 }
@@ -587,11 +640,18 @@ func parseSetAction(typ uint16, data []byte) (Action, error) {
 
 		switch typ {
 		case OVS_KEY_ATTR_TUNNEL:
-			ta, err := parseTunnelAttrs(data)
+			ta, tap, err := parseTunnelAttrs(data)
 			if err != nil {
 				return nil, err
 			}
-			res = SetTunnelAction{ta}
+			res = SetTunnelAction{
+				TunnelAttrs:     ta,
+				TunnelIdPresent: tap.TunnelId,
+				Ipv4SrcPresent:  tap.Ipv4Src,
+				Ipv4DstPresent:  tap.Ipv4Dst,
+				TtlPresent:      tap.Ttl,
+				TosPresent:      tap.Tos,
+			}
 			break
 
 		default:

@@ -465,8 +465,8 @@ func parseIpv4(s string) (res [4]byte, err error) {
 	return
 }
 
-func ipv4ToString(ip [4]byte) string {
-	return net.IP(ip[:]).To4().String()
+func ipv4ToString(ip []byte) string {
+	return net.IP(ip).To4().String()
 }
 
 func parseTunnelId(s string) (res [8]byte, err error) {
@@ -484,6 +484,163 @@ func parseTunnelId(s string) (res [8]byte, err error) {
 	return
 }
 
+type tunnelFlags struct {
+	id      string
+	ipv4Src string
+	ipv4Dst string
+	tos     int
+	ttl     int
+	df      string
+	csum    string
+}
+
+func addTunnelFlags(f Flags, tf *tunnelFlags, prefix string, descrPrefix string) {
+	f.StringVar(&tf.id, prefix+"id", "", descrPrefix+"ID")
+	f.StringVar(&tf.ipv4Src, prefix+"ipv4-src", "", descrPrefix+"ipv4 source address")
+	f.StringVar(&tf.ipv4Dst, prefix+"ipv4-dst", "", descrPrefix+"ipv4 destination address")
+	f.IntVar(&tf.tos, prefix+"tos", -1, descrPrefix+"ToS")
+	f.IntVar(&tf.ttl, prefix+"ttl", -1, descrPrefix+"TTL")
+
+	// the flag package doesn't support tri-state flags, hence
+	// StringVar
+	f.StringVar(&tf.df, prefix+"df", "", descrPrefix+"DF")
+	f.StringVar(&tf.csum, prefix+"csum", "", descrPrefix+"checksum")
+}
+
+func makeBoolStrings(trueStrs, falseStrs string) map[string]bool {
+	res := make(map[string]bool)
+
+	for _, s := range strings.Split(trueStrs, " ") {
+		res[s] = true
+	}
+
+	for _, s := range strings.Split(falseStrs, " ") {
+		res[s] = false
+	}
+
+	return res
+}
+
+var boolStrings = makeBoolStrings("1 t T true TRUE True", "0 f F false FALSE False")
+
+func parseBool(s string) (bool, error) {
+	b, ok := boolStrings[s]
+	if !ok {
+		return false, fmt.Errorf("not a valid boolean value: %s", s)
+	}
+
+	return b, nil
+}
+
+func setBytes(s []byte, x byte) {
+	for i := range s {
+		s[i] = x
+	}
+}
+
+func parseTunnelFlags(tf *tunnelFlags) (fk odp.TunnelFlowKey, err error) {
+	var k, m odp.TunnelAttrs
+
+	if tf.id != "" {
+		k.TunnelId, err = parseTunnelId(tf.id)
+		if err != nil {
+			return
+		}
+
+		setBytes(m.TunnelId[:], 0xff)
+	}
+
+	if tf.ipv4Src != "" {
+		k.Ipv4Src, err = parseIpv4(tf.ipv4Src)
+		if err != nil {
+			return
+		}
+
+		setBytes(m.Ipv4Src[:], 0xff)
+	}
+
+	if tf.ipv4Dst != "" {
+		k.Ipv4Dst, err = parseIpv4(tf.ipv4Dst)
+		if err != nil {
+			return
+		}
+
+		setBytes(m.Ipv4Dst[:], 0xff)
+	}
+
+	if tf.tos >= 0 {
+		k.Tos = uint8(tf.tos)
+		m.Tos = 0xff
+	}
+
+	if tf.ttl >= 0 {
+		k.Ttl = uint8(tf.ttl)
+		m.Ttl = 0xff
+	}
+
+	if tf.df != "" {
+		m.Df = true
+		k.Df, err = parseBool(tf.df)
+		if err != nil {
+			return
+		}
+	}
+
+	if tf.csum != "" {
+		m.Csum = true
+		k.Csum, err = parseBool(tf.csum)
+		if err != nil {
+			return
+		}
+	}
+
+	fk = odp.NewTunnelFlowKey(k, m)
+	return
+}
+
+func parseSetTunnelFlags(tf *tunnelFlags) (*odp.SetTunnelAction, error) {
+	fk, err := parseTunnelFlags(tf)
+	if err != nil {
+		return nil, err
+	}
+
+	a := odp.SetTunnelAction{TunnelAttrs: fk.Key()}
+	m := fk.Mask()
+	foundMask := false
+
+	present := func(exact, ignored bool) bool {
+		if exact {
+			return true
+		} else if ignored {
+			return false
+		} else {
+			foundMask = true
+			return false
+		}
+	}
+
+	bytesPresent := func(b []byte) bool {
+		return present(odp.AllBytes(b, 0xff), odp.AllBytes(b, 0))
+	}
+
+	a.TunnelIdPresent = bytesPresent(m.TunnelId[:])
+	a.Ipv4SrcPresent = bytesPresent(m.Ipv4Src[:])
+	a.Ipv4DstPresent = bytesPresent(m.Ipv4Dst[:])
+	a.TosPresent = present(m.Tos == 0xff, m.Tos == 0)
+	a.TtlPresent = present(m.Ttl == 0xff, m.Ttl == 0)
+
+	if foundMask {
+		return nil, fmt.Errorf("--set-tunnel option includes a mask")
+	}
+
+	if a.TunnelIdPresent || a.Ipv4SrcPresent || a.Ipv4DstPresent ||
+		a.TosPresent || a.TtlPresent || a.Df || a.Csum {
+		return &a, nil
+	} else {
+		return nil, nil
+	}
+}
+
 func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (dp odp.DatapathHandle, flow odp.FlowSpec, ok bool) {
 	flow = odp.NewFlowSpec()
 
@@ -494,16 +651,11 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (dp odp.DatapathHandle, flow odp.F
 	f.StringVar(&ethSrc, "eth-src", "", "key: ethernet source MAC")
 	f.StringVar(&ethDst, "eth-dst", "", "key: ethernet destination MAC")
 
-	var setTunId, setTunIpv4Src, setTunIpv4Dst string
-	var setTunTos, setTunTtl int
-	var setTunDf, setTunCsum bool
-	f.StringVar(&setTunId, "set-tunnel-id", "", "action: set tunnel ID")
-	f.StringVar(&setTunIpv4Src, "set-tunnel-ipv4-src", "", "action: set tunnel ipv4 source address")
-	f.StringVar(&setTunIpv4Dst, "set-tunnel-ipv4-dst", "", "action: set tunnel ipv4 destination address")
-	f.IntVar(&setTunTos, "set-tunnel-tos", -1, "action: set tunnel ToS")
-	f.IntVar(&setTunTtl, "set-tunnel-ttl", -1, "action: set tunnel TTL")
-	f.BoolVar(&setTunDf, "set-tunnel-df", false, "action: set tunnel DF")
-	f.BoolVar(&setTunCsum, "set-tunnel-csum", false, "action: set tunnel checksum")
+	var tun tunnelFlags
+	addTunnelFlags(f, &tun, "tunnel-", "tunnel ")
+
+	var setTun tunnelFlags
+	addTunnelFlags(f, &setTun, "set-tunnel-", "action: set tunnel ")
 
 	var output string
 	f.StringVar(&output, "output", "", "action: output to vports")
@@ -526,54 +678,27 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (dp odp.DatapathHandle, flow odp.F
 		return
 	}
 
+	flowKey, err := parseTunnelFlags(&tun)
+	if err != nil {
+		printErr("%s", err)
+		return
+	}
+
+	if !flowKey.Ignored() {
+		flow.AddKey(flowKey)
+	}
+
 	// Actions are ordered, but flags aren't.  As a temporary
 	// hack, we already put SET actions before an OUTPUT action.
 
-	if setTunIpv4Src != "" || setTunIpv4Dst != "" {
-		var ta odp.TunnelAttrs
-		var err error
+	setTunAttrs, err := parseSetTunnelFlags(&setTun)
+	if err != nil {
+		printErr("%s", err)
+		return
+	}
 
-		if setTunId != "" {
-			ta.TunnelId, err = parseTunnelId(setTunId)
-			if err != nil {
-				printErr("%s", err)
-				return
-			}
-			ta.TunnelIdPresent = true
-		}
-
-		if setTunIpv4Src != "" {
-			ta.Ipv4Src, err = parseIpv4(setTunIpv4Src)
-			if err != nil {
-				printErr("%s", err)
-				return
-			}
-			ta.Ipv4SrcPresent = true
-		}
-
-		if setTunIpv4Dst != "" {
-			ta.Ipv4Dst, err = parseIpv4(setTunIpv4Dst)
-			if err != nil {
-				printErr("%s", err)
-				return
-			}
-			ta.Ipv4DstPresent = true
-		}
-
-		if setTunTos >= 0 {
-			ta.Tos = uint8(setTunTos)
-			ta.TosPresent = true
-		}
-
-		if setTunTtl >= 0 {
-			ta.Ttl = uint8(setTunTtl)
-			ta.TtlPresent = true
-		}
-
-		ta.Df = setTunDf
-		ta.Csum = setTunCsum
-
-		flow.AddAction(odp.SetTunnelAction{ta})
+	if setTunAttrs != nil {
+		flow.AddAction(*setTunAttrs)
 	}
 
 	if output != "" {
@@ -727,8 +852,12 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 		case odp.EthernetFlowKey:
 			k := fk.Key()
 			m := fk.Mask()
-			printEthAddrOption("eth-src", k.EthSrc, m.EthSrc)
-			printEthAddrOption("eth-dst", k.EthDst, m.EthDst)
+			printEthAddrOption("eth-src", k.EthSrc[:], m.EthSrc[:])
+			printEthAddrOption("eth-dst", k.EthDst[:], m.EthDst[:])
+			break
+
+		case odp.TunnelFlowKey:
+			printTunnelOptions(fk, "tunnel-")
 			break
 
 		default:
@@ -751,7 +880,7 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 			break
 
 		case odp.SetTunnelAction:
-			printSetTunnelAction(a)
+			printSetTunnelOptions(a)
 			break
 
 		default:
@@ -768,46 +897,73 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 	return true
 }
 
-func printEthAddrOption(opt string, a [odp.ETH_ALEN]byte, m [odp.ETH_ALEN]byte) {
-	if !odp.AllBytes(m[:], 0) {
-		if odp.AllBytes(m[:], 0xff) {
-			fmt.Printf(" --%s=%s", opt, net.HardwareAddr(a[:]))
+func printEthAddrOption(opt string, k []byte, m []byte) {
+	printBytesOption(opt, k, m, func(a []byte) string {
+		return net.HardwareAddr(a).String()
+	})
+}
+
+func printBytesOption(opt string, k []byte, m []byte, f func([]byte) string) {
+	if !odp.AllBytes(m, 0) {
+		if odp.AllBytes(m, 0xff) {
+			fmt.Printf(" --%s=%s", opt, f(k))
 		} else {
-			fmt.Printf(" --%s=\"%s&%s\"", opt,
-				net.HardwareAddr(a[:]),
-				net.HardwareAddr(m[:]))
+			fmt.Printf(" --%s=\"%s&%s\"", opt, f(k), f(m))
 		}
 	}
 }
 
-func printSetTunnelAction(a odp.SetTunnelAction) {
-	var ta odp.TunnelAttrs = a.TunnelAttrs
+func printByteOption(opt string, k byte, m byte) {
+	if m != 0 {
+		if m == 0xff {
+			fmt.Printf(" --%s=%d", opt, k)
+		} else {
+			fmt.Printf(" --%s=\"%d&%d\"", opt, k, m)
+		}
+	}
+}
 
-	if ta.TunnelIdPresent {
-		fmt.Printf(" --set-tunnel-id=%s", hex.EncodeToString(ta.TunnelId[:]))
+func printTunnelOptions(fk odp.TunnelFlowKey, prefix string) {
+	k := fk.Key()
+	m := fk.Mask()
+
+	printBytesOption(prefix+"id", k.TunnelId[:], m.TunnelId[:], hex.EncodeToString)
+	printBytesOption(prefix+"ipv4-src", k.Ipv4Src[:], m.Ipv4Src[:], ipv4ToString)
+	printBytesOption(prefix+"ipv4-dst", k.Ipv4Dst[:], m.Ipv4Dst[:], ipv4ToString)
+	printByteOption(prefix+"tos", k.Tos, m.Tos)
+	printByteOption(prefix+"ttl", k.Ttl, m.Ttl)
+
+	if m.Df {
+		fmt.Printf(" --%sdf=%t", prefix, k.Df)
 	}
 
-	if ta.Ipv4SrcPresent {
-		fmt.Printf(" --set-tunnel-ipv4-src=%s", ipv4ToString(ta.Ipv4Src))
+	if m.Csum {
+		fmt.Printf(" --%scsum=%t", prefix, k.Csum)
+	}
+}
+
+func printSetTunnelOptions(a odp.SetTunnelAction) {
+	presentToByte := func(p bool) byte {
+		if p {
+			return 0xff
+		} else {
+			return 0
+		}
 	}
 
-	if ta.Ipv4DstPresent {
-		fmt.Printf(" --set-tunnel-ipv4-dst=%s", ipv4ToString(ta.Ipv4Dst))
+	fillBytes := func(bs []byte, v byte) {
+		for i := range bs {
+			bs[i] = v
+		}
 	}
 
-	if ta.TosPresent {
-		fmt.Printf(" --set-tunnel-tos=%d", ta.Tos)
-	}
-
-	if ta.TtlPresent {
-		fmt.Printf(" --set-tunnel-ttl=%d", ta.Ttl)
-	}
-
-	if ta.Df {
-		fmt.Printf(" --set-tunnel-df")
-	}
-
-	if ta.Csum {
-		fmt.Printf(" --set-tunnel-csum")
-	}
+	var m odp.TunnelAttrs
+	fillBytes(m.TunnelId[:], presentToByte(a.TunnelIdPresent))
+	fillBytes(m.Ipv4Src[:], presentToByte(a.Ipv4SrcPresent))
+	fillBytes(m.Ipv4Dst[:], presentToByte(a.Ipv4DstPresent))
+	m.Tos = presentToByte(a.TosPresent)
+	m.Ttl = presentToByte(a.TtlPresent)
+	m.Df = a.Df
+	m.Csum = a.Csum
+	printTunnelOptions(odp.NewTunnelFlowKey(a.TunnelAttrs, m), "set-tunnel-")
 }

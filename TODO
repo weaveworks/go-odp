@@ -1,3 +1,5 @@
+tool: listen: print key on upcall packets
+
 tool: elaborate error messages
 
 tool: usage output
