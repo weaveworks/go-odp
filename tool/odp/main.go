@@ -623,18 +623,21 @@ func parseSetTunnelFlags(tf *tunnelFlags) (*odp.SetTunnelAction, error) {
 		return present(odp.AllBytes(b, 0xff), odp.AllBytes(b, 0))
 	}
 
-	a.TunnelIdPresent = bytesPresent(m.TunnelId[:])
-	a.Ipv4SrcPresent = bytesPresent(m.Ipv4Src[:])
-	a.Ipv4DstPresent = bytesPresent(m.Ipv4Dst[:])
-	a.TosPresent = present(m.Tos == 0xff, m.Tos == 0)
-	a.TtlPresent = present(m.Ttl == 0xff, m.Ttl == 0)
+	a.Present.TunnelId = bytesPresent(m.TunnelId[:])
+	a.Present.Ipv4Src = bytesPresent(m.Ipv4Src[:])
+	a.Present.Ipv4Dst = bytesPresent(m.Ipv4Dst[:])
+	a.Present.Tos = present(m.Tos == 0xff, m.Tos == 0)
+	a.Present.Ttl = present(m.Ttl == 0xff, m.Ttl == 0)
+	a.Present.Df = m.Df
+	a.Present.Csum = m.Csum
 
 	if foundMask {
 		return nil, fmt.Errorf("--set-tunnel option includes a mask")
 	}
 
-	if a.TunnelIdPresent || a.Ipv4SrcPresent || a.Ipv4DstPresent ||
-		a.TosPresent || a.TtlPresent || a.Df || a.Csum {
+	if a.Present.TunnelId || a.Present.Ipv4Src || a.Present.Ipv4Dst ||
+		a.Present.Tos || a.Present.Ttl ||
+		a.Present.Df || a.Present.Csum {
 		return &a, nil
 	} else {
 		return nil, nil
@@ -958,12 +961,12 @@ func printSetTunnelOptions(a odp.SetTunnelAction) {
 	}
 
 	var m odp.TunnelAttrs
-	fillBytes(m.TunnelId[:], presentToByte(a.TunnelIdPresent))
-	fillBytes(m.Ipv4Src[:], presentToByte(a.Ipv4SrcPresent))
-	fillBytes(m.Ipv4Dst[:], presentToByte(a.Ipv4DstPresent))
-	m.Tos = presentToByte(a.TosPresent)
-	m.Ttl = presentToByte(a.TtlPresent)
-	m.Df = a.Df
-	m.Csum = a.Csum
+	fillBytes(m.TunnelId[:], presentToByte(a.Present.TunnelId))
+	fillBytes(m.Ipv4Src[:], presentToByte(a.Present.Ipv4Src))
+	fillBytes(m.Ipv4Dst[:], presentToByte(a.Present.Ipv4Dst))
+	m.Tos = presentToByte(a.Present.Tos)
+	m.Ttl = presentToByte(a.Present.Ttl)
+	m.Df = a.Present.Df
+	m.Csum = a.Present.Csum
 	printTunnelOptions(odp.NewTunnelFlowKey(a.TunnelAttrs, m), "set-tunnel-")
 }

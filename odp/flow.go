@@ -590,11 +590,7 @@ func parseOutputAction(typ uint16, data []byte) (Action, error) {
 
 type SetTunnelAction struct {
 	TunnelAttrs
-	TunnelIdPresent bool
-	Ipv4SrcPresent  bool
-	Ipv4DstPresent  bool
-	TosPresent      bool
-	TtlPresent      bool
+	Present TunnelAttrsPresence
 }
 
 func (SetTunnelAction) typeId() uint16 {
@@ -604,15 +600,9 @@ func (SetTunnelAction) typeId() uint16 {
 func (ta SetTunnelAction) toNlAttr(msg *NlMsgBuilder) {
 	msg.PutNestedAttrs(OVS_ACTION_ATTR_SET, func() {
 		msg.PutNestedAttrs(OVS_KEY_ATTR_TUNNEL, func() {
-			ta.toNlAttrs(msg, TunnelAttrsPresence{
-				TunnelId: ta.TunnelIdPresent,
-				Ipv4Src:  ta.Ipv4SrcPresent,
-				Ipv4Dst:  ta.Ipv4DstPresent,
-				Tos:      ta.TosPresent,
-				Ttl:      ta.TtlPresent,
-				Df:       ta.Df,
-				Csum:     ta.Csum,
-			})
+			ta.Present.Df = ta.Df
+			ta.Present.Csum = ta.Csum
+			ta.TunnelAttrs.toNlAttrs(msg, ta.Present)
 		})
 	})
 }
@@ -640,18 +630,11 @@ func parseSetAction(typ uint16, data []byte) (Action, error) {
 
 		switch typ {
 		case OVS_KEY_ATTR_TUNNEL:
-			ta, tap, err := parseTunnelAttrs(data)
+			ta, present, err := parseTunnelAttrs(data)
 			if err != nil {
 				return nil, err
 			}
-			res = SetTunnelAction{
-				TunnelAttrs:     ta,
-				TunnelIdPresent: tap.TunnelId,
-				Ipv4SrcPresent:  tap.Ipv4Src,
-				Ipv4DstPresent:  tap.Ipv4Dst,
-				TtlPresent:      tap.Ttl,
-				TosPresent:      tap.Tos,
-			}
+			res = SetTunnelAction{TunnelAttrs: ta, Present: present}
 			break
 
 		default:
