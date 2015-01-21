@@ -68,11 +68,11 @@ type FlowKeyParser struct {
 // Maps an NL attribute type to the corresponding FlowKeyParser
 type FlowKeyParsers map[uint16]FlowKeyParser
 
-func parseFlowKeys(keys Attrs, masks Attrs, parsers FlowKeyParsers) (res FlowKeys, err error) {
+func ParseFlowKeys(keys Attrs, masks Attrs) (res FlowKeys, err error) {
 	res = make(FlowKeys)
 
 	for typ, key := range keys {
-		parser, ok := parsers[typ]
+		parser, ok := flowKeyParsers[typ]
 		if !ok {
 			return nil, fmt.Errorf("unknown flow key type %d (value %v)", typ, key)
 		}
@@ -106,7 +106,7 @@ func parseFlowKeys(keys Attrs, masks Attrs, parsers FlowKeyParsers) (res FlowKey
 
 			// flow key mask without a corresponding flow
 			// key value
-			parser, ok := parsers[typ]
+			parser, ok := flowKeyParsers[typ]
 			if !ok {
 				return nil, fmt.Errorf("unknown flow key type %d (mask %v)", typ, mask)
 			}
@@ -350,14 +350,6 @@ type TunnelAttrsPresence struct {
 	Csum     bool
 }
 
-var ExactTunnelAttrsMask TunnelAttrs = TunnelAttrs{
-	[8]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
-	[4]byte{0xff, 0xff, 0xff, 0xff},
-	[4]byte{0xff, 0xff, 0xff, 0xff},
-	0xff, 0xff,
-	true, true,
-}
-
 // Extract presence information from a TunnelAttrs mask
 func (ta TunnelAttrs) present() TunnelAttrsPresence {
 	return TunnelAttrsPresence{
@@ -369,6 +361,36 @@ func (ta TunnelAttrs) present() TunnelAttrsPresence {
 		Df:       ta.Df,
 		Csum:     ta.Csum,
 	}
+}
+
+// Convert a TunnelAttrsPresence to a mask
+func (tap TunnelAttrsPresence) mask() (res TunnelAttrs) {
+	if tap.TunnelId {
+		res.TunnelId = [8]byte{
+			0xff, 0xff, 0xff, 0xff,
+			0xff, 0xff, 0xff, 0xff,
+		}
+	}
+
+	if tap.Ipv4Src {
+		res.Ipv4Src = [4]byte{0xff, 0xff, 0xff, 0xff}
+	}
+
+	if tap.Ipv4Dst {
+		res.Ipv4Dst = [4]byte{0xff, 0xff, 0xff, 0xff}
+	}
+
+	if tap.Tos {
+		res.Tos = 0xff
+	}
+
+	if tap.Ttl {
+		res.Ttl = 0xff
+	}
+
+	res.Df = tap.Df
+	res.Csum = tap.Csum
+	return
 }
 
 func (ta TunnelAttrs) toNlAttrs(msg *NlMsgBuilder, present TunnelAttrsPresence) {
@@ -497,10 +519,11 @@ func (key TunnelFlowKey) Ignored() bool {
 
 func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
 	var k, m TunnelAttrs
+	var kp TunnelAttrsPresence
 	var err error
 
 	if key != nil {
-		k, _, err = parseTunnelAttrs(key)
+		k, kp, err = parseTunnelAttrs(key)
 		if err != nil {
 			return nil, err
 		}
@@ -515,7 +538,10 @@ func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
 			return nil, err
 		}
 	} else {
-		m = ExactTunnelAttrsMask
+		// mask being nil means that no mask attributes were
+		// provided, which means the mask is implicit in the
+		// key attributes provides
+		m = kp.mask()
 	}
 
 	return TunnelFlowKey{key: k, mask: m}, err
@@ -533,6 +559,9 @@ var flowKeyParsers = FlowKeyParsers{
 
 	OVS_KEY_ATTR_ETHERNET:  ethernetFlowKeyParser,
 	OVS_KEY_ATTR_ETHERTYPE: blobFlowKeyParser(2, nil),
+	OVS_KEY_ATTR_IPV6:      blobFlowKeyParser(40, nil),
+	OVS_KEY_ATTR_ICMPV6:    blobFlowKeyParser(2, nil),
+	OVS_KEY_ATTR_ARP:       blobFlowKeyParser(24, nil),
 	OVS_KEY_ATTR_SKB_MARK:  blobFlowKeyParser(4, nil),
 
 	OVS_KEY_ATTR_TUNNEL: FlowKeyParser{
@@ -747,7 +776,7 @@ func (dp DatapathHandle) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
 		return f, err
 	}
 
-	f.FlowKeys, err = parseFlowKeys(keys, masks, flowKeyParsers)
+	f.FlowKeys, err = ParseFlowKeys(keys, masks)
 	if err != nil {
 		return f, err
 	}

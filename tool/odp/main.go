@@ -189,6 +189,9 @@ func deleteDatapath(f Flags) bool {
 }
 
 func listenOnDatapath(f Flags) bool {
+	var showKeys bool
+	f.BoolVar(&showKeys, "keys", false, "show flow keys on reported packets")
+
 	args := f.Parse(1, 1)
 
 	dpif, err := odp.NewDpif()
@@ -212,10 +215,30 @@ func listenOnDatapath(f Flags) bool {
 	}
 
 	dp.ConsumeMisses(func(attrs odp.Attrs) error {
-		return writeTcpdumpPacket(pipe, time.Now(), attrs[odp.OVS_PACKET_ATTR_PACKET])
+		if showKeys {
+			// We don't control how the key output gets
+			// interleaved with tcpdump output, but meh
+			fkattrs, err := attrs.GetNestedAttrs(odp.OVS_PACKET_ATTR_KEY, false)
+			if err != nil {
+				return err
+			}
 
-		//fmt.Printf("XXX %v\n", attrs)
-		// return nil
+			fks, err := odp.ParseFlowKeys(fkattrs, nil)
+			if err != nil {
+				return err
+			}
+
+			os.Stdout.WriteString("[" + args[0])
+
+			err = printFlowKeys(fks, dp)
+			if err != nil {
+				return err
+			}
+
+			os.Stdout.WriteString("]\n")
+		}
+
+		return writeTcpdumpPacket(pipe, time.Now(), attrs[odp.OVS_PACKET_ATTR_PACKET])
 	}, func(err error) {
 		fmt.Printf("Error: %s\n", err)
 	})
@@ -826,18 +849,26 @@ func listFlows(f Flags) bool {
 	}
 
 	for _, flow := range flows {
-		if !printFlow(flow, dp, args[0]) {
-			return false
+		os.Stdout.WriteString(args[0])
+
+		err = printFlowKeys(flow.FlowKeys, dp)
+		if err != nil {
+			return printErr("%s", err)
 		}
+
+		err = printFlowActions(flow.Actions, dp)
+		if err != nil {
+			return printErr("%s", err)
+		}
+
+		os.Stdout.WriteString("\n")
 	}
 
 	return true
 }
 
-func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
-	os.Stdout.WriteString(dpname)
-
-	for _, fk := range flow.FlowKeys {
+func printFlowKeys(fks odp.FlowKeys, dp odp.DatapathHandle) error {
+	for _, fk := range fks {
 		if fk.Ignored() {
 			continue
 		}
@@ -846,7 +877,7 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 		case odp.InPortFlowKey:
 			name, err := fk.VportHandle(dp).LookupName()
 			if err != nil {
-				return printErr("%s", err)
+				return err
 			}
 
 			fmt.Printf(" --in-port=%s", name)
@@ -864,19 +895,23 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 			break
 
 		default:
-			fmt.Printf("%v", fk)
+			fmt.Printf(" %T:%v", fk, fk)
 			break
 		}
 	}
 
+	return nil
+}
+
+func printFlowActions(as []odp.Action, dp odp.DatapathHandle) error {
 	outputs := make([]string, 0)
 
-	for _, a := range flow.Actions {
+	for _, a := range as {
 		switch a := a.(type) {
 		case odp.OutputAction:
 			name, err := a.VportHandle(dp).LookupName()
 			if err != nil {
-				return printErr("%s", err)
+				return err
 			}
 
 			outputs = append(outputs, name)
@@ -896,8 +931,7 @@ func printFlow(flow odp.FlowSpec, dp odp.DatapathHandle, dpname string) bool {
 		fmt.Printf(" --output=%s", strings.Join(outputs, ","))
 	}
 
-	os.Stdout.WriteString("\n")
-	return true
+	return nil
 }
 
 func printEthAddrOption(opt string, k []byte, m []byte) {
