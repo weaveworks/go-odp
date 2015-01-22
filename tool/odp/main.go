@@ -35,6 +35,13 @@ func (cmds subcommands) run(args []string, pos int) bool {
 	matches := 0
 
 	for name, cd := range cmds {
+		if name == args[pos] {
+			// exact match
+			match = cd
+			matches = 1
+			break
+		}
+
 		if strings.HasPrefix(name, args[pos]) {
 			match = cd
 			matches++
