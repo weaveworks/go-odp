@@ -80,6 +80,10 @@ operations available through this tool map more or less directly onto
 the operations exposed by the Open vSwitch datapath over netlink, and
 are a good way to understand what the ODP interface looks like.
 
+The `odp` program supports a number of subcommands (in a similar
+fashion to `ip`).  Subcommands can be abbreviated as long as they
+remain unambiguous.
+
 ### Datapaths
 
 List all datapaths with:
@@ -212,9 +216,20 @@ The destination UDP port for the VXLAN packets is the port number
 setting for the outgoing VXLAN vport (the same port number that is
 used for binding).  The source UDP port for the VXLAN packets cannot
 be configured; it is based on a hash of inner packet fields, as
-recommended in pRFC7348](https://tools.ietf.org/html/rfc7348).
+recommended in RFC7348](https://tools.ietf.org/html/rfc7348).
 
-### Upcalls
+### Misses
 
-TODO
+The command line tool can display misses reported for a datapath, with:
+
+    $GOPATH/bin/odp datapath listen <datapath name>
+
+The reported packets are piped through tcpdump to display their
+contents.
+
+You can also ask for the flow keys associated with misses to be
+reported with:
+
+    $GOPATH/bin/odp datapath listen --keys <datapath name>
+
 
