@@ -743,29 +743,26 @@ func (a FlowSpec) Equals(b FlowSpec) bool {
 	return true
 }
 
-func (dp DatapathHandle) parseFlowSpec(msg *NlMsgParser) (FlowSpec, error) {
-	f := FlowSpec{}
-
+func (dp DatapathHandle) parseFlowMsg(msg *NlMsgParser) (Attrs, error) {
 	_, err := msg.ExpectNlMsghdr(dp.dpif.familyIds[FLOW])
 	if err != nil {
-		return f, err
+		return nil, err
 	}
 
 	_, err = msg.ExpectGenlMsghdr(OVS_FLOW_CMD_NEW)
 	if err != nil {
-		return f, err
+		return nil, err
 	}
 
 	err = dp.checkOvsHeader(msg)
 	if err != nil {
-		return f, err
+		return nil, err
 	}
 
-	attrs, err := msg.TakeAttrs()
-	if err != nil {
-		return f, err
-	}
+	return msg.TakeAttrs()
+}
 
+func parseFlowSpec(attrs Attrs) (f FlowSpec, err error) {
 	keys, err := attrs.GetNestedAttrs(OVS_FLOW_ATTR_KEY, false)
 	if err != nil {
 		return f, err
@@ -840,20 +837,53 @@ func (dp DatapathHandle) DeleteFlow(f FlowSpec) error {
 	return err
 }
 
-func (dp DatapathHandle) EnumerateFlows() ([]FlowSpec, error) {
+type FlowInfo struct {
+	FlowSpec
+	Packets uint64
+	Bytes   uint64
+}
+
+func parseFlowInfo(attrs Attrs) (fi FlowInfo, err error) {
+	fi.FlowSpec, err = parseFlowSpec(attrs)
+	if err != nil {
+		return
+	}
+
+	statsBytes, err := attrs.GetFixedBytes(OVS_FLOW_ATTR_STATS,
+		SizeofOvsFlowStats, true)
+	if err != nil {
+		return
+	}
+
+	if statsBytes != nil {
+		stats := ovsFlowStatsAt(statsBytes, 0)
+		fi.Packets = stats.NPackets
+		fi.Bytes = stats.NBytes
+	}
+
+	return
+}
+
+func (dp DatapathHandle) EnumerateFlows() ([]FlowInfo, error) {
 	dpif := dp.dpif
-	res := make([]FlowSpec, 0)
+	res := make([]FlowInfo, 0)
 
 	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[FLOW])
 	req.PutGenlMsghdr(OVS_FLOW_CMD_GET, OVS_FLOW_VERSION)
 	req.putOvsHeader(dp.ifindex)
 
 	consumer := func(resp *NlMsgParser) error {
-		f, err := dp.parseFlowSpec(resp)
+		attrs, err := dp.parseFlowMsg(resp)
 		if err != nil {
 			return err
 		}
-		res = append(res, f)
+
+		fi, err := parseFlowInfo(attrs)
+		if err != nil {
+			return err
+		}
+
+		res = append(res, fi)
 		return nil
 	}
 

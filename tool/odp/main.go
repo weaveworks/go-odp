@@ -837,6 +837,8 @@ func deleteFlow(f Flags) bool {
 }
 
 func listFlows(f Flags) bool {
+	var showStats bool
+	f.BoolVar(&showStats, "stats", false, "show statistics")
 	args := f.Parse(1, 1)
 
 	dpif, err := odp.NewDpif()
@@ -866,6 +868,11 @@ func listFlows(f Flags) bool {
 		err = printFlowActions(flow.Actions, dp)
 		if err != nil {
 			return printErr("%s", err)
+		}
+
+		if showStats {
+			fmt.Printf(": %d packets, %d bytes", flow.Packets,
+				flow.Bytes)
 		}
 
 		os.Stdout.WriteString("\n")

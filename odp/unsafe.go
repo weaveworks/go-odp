@@ -63,3 +63,7 @@ func ovsHeaderAt(data []byte, pos int) *OvsHeader {
 func ovsKeyEthernetAt(data []byte, pos int) *OvsKeyEthernet {
 	return (*OvsKeyEthernet)(unsafe.Pointer(&data[pos]))
 }
+
+func ovsFlowStatsAt(data []byte, pos int) *OvsFlowStats {
+	return (*OvsFlowStats)(unsafe.Pointer(&data[pos]))
+}

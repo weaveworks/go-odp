@@ -380,7 +380,7 @@ func TestEnumerateFlows(t *testing.T) {
 	}
 
 	for _, eflow := range eflows {
-		err = dp.DeleteFlow(eflow)
+		err = dp.DeleteFlow(eflow.FlowSpec)
 		if err != nil {
 			t.Fatal(err)
 		}

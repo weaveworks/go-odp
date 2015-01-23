@@ -300,14 +300,23 @@ func (attrs Attrs) Get(typ uint16, optional bool) ([]byte, error) {
 	return val, nil
 }
 
-func (attrs Attrs) GetOptionalBytes(typ uint16, dest []byte) (bool, error) {
-	val, err := attrs.Get(typ, true)
+func (attrs Attrs) GetFixedBytes(typ uint16, expect int, optional bool) ([]byte, error) {
+	val, err := attrs.Get(typ, optional)
 	if err != nil || val == nil {
-		return false, err
+		return nil, err
 	}
 
-	if len(val) != len(dest) {
-		return false, fmt.Errorf("attribute %d has wrong length (got %d bytes, expected %d bytes)", typ, len(val), len(dest))
+	if len(val) != expect {
+		return nil, fmt.Errorf("attribute %d has wrong length (got %d bytes, expected %d bytes)", typ, len(val), expect)
+	}
+
+	return val, nil
+}
+
+func (attrs Attrs) GetOptionalBytes(typ uint16, dest []byte) (bool, error) {
+	val, err := attrs.GetFixedBytes(typ, len(dest), true)
+	if err != nil || val == nil {
+		return false, err
 	}
 
 	copy(dest, val)

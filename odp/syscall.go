@@ -126,6 +126,13 @@ const ( // ovs_flow_attr
 	OVS_FLOW_ATTR_MASK      = 7
 )
 
+type OvsFlowStats struct {
+	NPackets uint64
+	NBytes   uint64
+}
+
+const SizeofOvsFlowStats = 16
+
 const ( // ovs_key_attr
 	OVS_KEY_ATTR_UNSPEC    = 0
 	OVS_KEY_ATTR_ENCAP     = 1
