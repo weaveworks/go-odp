@@ -64,6 +64,10 @@ func (dpif *Dpif) CreateDatapath(name string) (DatapathHandle, error) {
 	return DatapathHandle{dpif: dpif, ifindex: dpi.ifindex}, nil
 }
 
+func IsDatapathNameAlreadyExistsError(err error) bool {
+	return err == NetlinkError(syscall.EEXIST)
+}
+
 func (dpif *Dpif) LookupDatapath(name string) (DatapathHandle, error) {
 	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[DATAPATH])
 	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)

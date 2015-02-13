@@ -163,7 +163,11 @@ func addDatapath(f Flags) bool {
 
 	_, err = dpif.CreateDatapath(args[0])
 	if err != nil {
-		return printErr("%s", err)
+		if odp.IsDatapathNameAlreadyExistsError(err) {
+			return printErr("Network device named %s already exists", args[0])
+		} else {
+			return printErr("%s", err)
+		}
 	}
 
 	return true
