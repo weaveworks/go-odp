@@ -41,6 +41,10 @@ type DatapathHandle struct {
 	ifindex int32
 }
 
+func (dp DatapathHandle) IfIndex() int32 {
+	return dp.ifindex
+}
+
 func (dpif *Dpif) CreateDatapath(name string) (DatapathHandle, error) {
 	var features uint32 = OVS_DP_F_UNALIGNED | OVS_DP_F_VPORT_PIDS
 
@@ -85,6 +89,32 @@ func (dpif *Dpif) LookupDatapath(name string) (DatapathHandle, error) {
 	}
 
 	return DatapathHandle{dpif: dpif, ifindex: dpi.ifindex}, nil
+}
+
+type Datapath struct {
+	Handle DatapathHandle
+	Name   string
+}
+
+func (dpif *Dpif) LookupDatapathByIndex(ifindex int32) (Datapath, error) {
+	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[DATAPATH])
+	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
+	req.putOvsHeader(ifindex)
+
+	resp, err := dpif.sock.Request(req)
+	if err != nil {
+		return Datapath{}, err
+	}
+
+	dpi, err := dpif.parseDatapathInfo(resp)
+	if err != nil {
+		return Datapath{}, err
+	}
+
+	return Datapath{
+		Handle: DatapathHandle{dpif: dpif, ifindex: ifindex},
+		Name:   dpi.name,
+	}, nil
 }
 
 func IsNoSuchDatapathError(err error) bool {

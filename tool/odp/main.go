@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 	"unsafe"
@@ -173,6 +174,35 @@ func addDatapath(f Flags) bool {
 	return true
 }
 
+func lookupDatapath(dpif *odp.Dpif, name string) (*odp.DatapathHandle, string) {
+	dph, err := dpif.LookupDatapath(name)
+	if err == nil {
+		return &dph, name
+	}
+
+	if !odp.IsNoSuchDatapathError(err) {
+		printErr("%s", err)
+		return nil, ""
+	}
+
+	// If the name is a number, try to use it as an ifindex
+	ifindex, err := strconv.ParseUint(name, 10, 32)
+	if err == nil {
+		dp, err := dpif.LookupDatapathByIndex(int32(ifindex))
+		if err == nil {
+			return &dp.Handle, dp.Name
+		}
+
+		if !odp.IsNoSuchDatapathError(err) {
+			printErr("%s", err)
+			return nil, ""
+		}
+	}
+
+	printErr("Cannot find datapath \"%s\"", name)
+	return nil, ""
+}
+
 func deleteDatapath(f Flags) bool {
 	args := f.Parse(1, 1)
 
@@ -182,13 +212,9 @@ func deleteDatapath(f Flags) bool {
 	}
 	defer dpif.Close()
 
-	dp, err := dpif.LookupDatapath(args[0])
-	if err != nil {
-		return printErr("%s", err)
-	}
-
-	if odp.IsNoSuchDatapathError(err) {
-		return printErr("Cannot find datapath \"%s\"", args[0])
+	dp, _ := lookupDatapath(dpif, args[0])
+	if dp == nil {
+		return false
 	}
 
 	err = dp.Delete()
@@ -211,13 +237,9 @@ func listenOnDatapath(f Flags) bool {
 	}
 	defer dpif.Close()
 
-	dp, err := dpif.LookupDatapath(args[0])
-	if err != nil {
-		return printErr("%s", err)
-	}
-
-	if odp.IsNoSuchDatapathError(err) {
-		return printErr("Cannot find datapath \"%s\"", args[0])
+	dp, dpname := lookupDatapath(dpif, args[0])
+	if dp == nil {
+		return false
 	}
 
 	pipe, err := openTcpdump()
@@ -239,9 +261,9 @@ func listenOnDatapath(f Flags) bool {
 				return err
 			}
 
-			os.Stdout.WriteString("[" + args[0])
+			os.Stdout.WriteString("[" + dpname)
 
-			err = printFlowKeys(fks, dp)
+			err = printFlowKeys(fks, *dp)
 			if err != nil {
 				return err
 			}
@@ -337,8 +359,8 @@ func listDatapaths(f Flags) bool {
 	defer dpif.Close()
 
 	dps, err := dpif.EnumerateDatapaths()
-	for name := range dps {
-		fmt.Printf("%s\n", name)
+	for name, dp := range dps {
+		fmt.Printf("%d: %s\n", dp.IfIndex(), name)
 	}
 
 	return true
@@ -374,9 +396,9 @@ func addVport(dpname string, spec odp.VportSpec) bool {
 	}
 	defer dpif.Close()
 
-	dp, err := dpif.LookupDatapath(dpname)
-	if err != nil {
-		return printErr("%s", err)
+	dp, dpname := lookupDatapath(dpif, dpname)
+	if dp == nil {
+		return false
 	}
 
 	_, err = dp.CreateVport(spec)
@@ -440,12 +462,12 @@ func listVports(f Flags) bool {
 
 		return true
 	} else {
-		dp, err := dpif.LookupDatapath(args[0])
-		if err != nil {
-			return printErr("%s", err)
+		dp, dpname := lookupDatapath(dpif, args[0])
+		if dp == nil {
+			return false
 		}
 
-		return printVports(args[0], dp)
+		return printVports(dpname, *dp)
 	}
 }
 
@@ -749,13 +771,12 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (dp odp.DatapathHandle, flow odp.F
 		}
 	}
 
-	dp, err = dpif.LookupDatapath(args[0])
-	if err != nil {
-		printErr("%s", err)
+	dpp, _ := lookupDatapath(dpif, args[0])
+	if dpp == nil {
 		return
 	}
 
-	return dp, flow, true
+	return *dpp, flow, true
 }
 
 func handleEthernetFlowKeyOptions(flow odp.FlowSpec, src string, dst string) (err error) {
@@ -851,9 +872,9 @@ func listFlows(f Flags) bool {
 	}
 	defer dpif.Close()
 
-	dp, err := dpif.LookupDatapath(args[0])
-	if err != nil {
-		return printErr("%s", err)
+	dp, dpname := lookupDatapath(dpif, args[0])
+	if dp == nil {
+		return false
 	}
 
 	flows, err := dp.EnumerateFlows()
@@ -862,14 +883,14 @@ func listFlows(f Flags) bool {
 	}
 
 	for _, flow := range flows {
-		os.Stdout.WriteString(args[0])
+		os.Stdout.WriteString(dpname)
 
-		err = printFlowKeys(flow.FlowKeys, dp)
+		err = printFlowKeys(flow.FlowKeys, *dp)
 		if err != nil {
 			return printErr("%s", err)
 		}
 
-		err = printFlowActions(flow.Actions, dp)
+		err = printFlowActions(flow.Actions, *dp)
 		if err != nil {
 			return printErr("%s", err)
 		}
