@@ -153,6 +153,8 @@ const ( // ovs_key_attr
 	OVS_KEY_ATTR_TUNNEL    = 16
 	OVS_KEY_ATTR_SCTP      = 17
 	OVS_KEY_ATTR_TCP_FLAGS = 18
+	OVS_KEY_ATTR_DP_HASH   = 19
+	OVS_KEY_ATTR_RECIRC_ID = 20
 )
 
 const ( // ovs_tunnel_key_attr

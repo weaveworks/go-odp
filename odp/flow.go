@@ -563,6 +563,8 @@ var flowKeyParsers = FlowKeyParsers{
 	OVS_KEY_ATTR_ICMPV6:    blobFlowKeyParser(2, nil),
 	OVS_KEY_ATTR_ARP:       blobFlowKeyParser(24, nil),
 	OVS_KEY_ATTR_SKB_MARK:  blobFlowKeyParser(4, nil),
+	OVS_KEY_ATTR_DP_HASH:   blobFlowKeyParser(4, nil),
+	OVS_KEY_ATTR_RECIRC_ID: blobFlowKeyParser(4, nil),
 
 	OVS_KEY_ATTR_TUNNEL: FlowKeyParser{
 		parse:      parseTunnelFlowKey,
