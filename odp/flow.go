@@ -573,6 +573,15 @@ var flowKeyParsers = FlowKeyParsers{
 	},
 }
 
+func MakeFlowKeys() FlowKeys {
+	return make(FlowKeys)
+}
+
+func (keys FlowKeys) Add(k FlowKey) {
+	// TODO check for collisions
+	keys[k.typeId()] = k
+}
+
 // Actions
 
 type Action interface {
@@ -695,8 +704,7 @@ func NewFlowSpec() FlowSpec {
 }
 
 func (f *FlowSpec) AddKey(k FlowKey) {
-	// TODO check for collisions
-	f.FlowKeys[k.typeId()] = k
+	f.FlowKeys.Add(k)
 }
 
 func (f *FlowSpec) AddAction(a Action) {

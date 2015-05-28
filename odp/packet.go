@@ -82,3 +82,27 @@ func consumeMisses(dp DatapathHandle, sock *NetlinkSocket, consumer MissConsumer
 		}
 	}
 }
+
+func (dp DatapathHandle) Execute(packet []byte, keys FlowKeys, actions []Action) error {
+	dpif := dp.dpif
+
+	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[PACKET])
+	req.PutGenlMsghdr(OVS_PACKET_CMD_EXECUTE, OVS_PACKET_VERSION)
+	req.putOvsHeader(dp.ifindex)
+	req.PutSliceAttr(OVS_PACKET_ATTR_PACKET, packet)
+
+	req.PutNestedAttrs(OVS_PACKET_ATTR_KEY, func() {
+		for _, k := range keys {
+			k.putKeyNlAttr(req)
+		}
+	})
+
+	req.PutNestedAttrs(OVS_PACKET_ATTR_ACTIONS, func() {
+		for _, a := range actions {
+			a.toNlAttr(req)
+		}
+	})
+
+	_, err := dpif.sock.Request(req)
+	return err
+}
