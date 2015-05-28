@@ -247,39 +247,37 @@ func listenOnDatapath(f Flags) bool {
 		return printErr("Error starting tcpdump: %s", err)
 	}
 
-	dp.ConsumeMisses(func(attrs odp.Attrs) error {
+	miss := func(packet []byte, flowKeys odp.FlowKeys) error {
 		if showKeys {
-			// We don't control how the key output gets
-			// interleaved with tcpdump output, but meh
-			fkattrs, err := attrs.GetNestedAttrs(odp.OVS_PACKET_ATTR_KEY, false)
-			if err != nil {
-				return err
-			}
-
-			fks, err := odp.ParseFlowKeys(fkattrs, nil)
-			if err != nil {
-				return err
-			}
-
 			os.Stdout.WriteString("[" + dpname)
-
-			err = printFlowKeys(fks, *dp)
-			if err != nil {
+			if err := printFlowKeys(flowKeys, *dp); err != nil {
 				return err
 			}
-
 			os.Stdout.WriteString("]\n")
 		}
 
-		return writeTcpdumpPacket(pipe, time.Now(), attrs[odp.OVS_PACKET_ATTR_PACKET])
-	}, func(err error) {
-		fmt.Printf("Error: %s\n", err)
-	})
+		return writeTcpdumpPacket(pipe, time.Now(), packet)
+	}
 
-	// wait forever
-	ch := make(chan int, 1)
-	for {
-		_ = <-ch
+	done := make(chan struct{})
+	dp.ConsumeMisses(missConsumer{miss, done})
+	<-done
+	return true
+}
+
+type missConsumer struct {
+	miss func([]byte, odp.FlowKeys) error
+	done chan<- struct{}
+}
+
+func (c missConsumer) Miss(packet []byte, flowKeys odp.FlowKeys) error {
+	return c.miss(packet, flowKeys)
+}
+
+func (c missConsumer) Error(err error, stopped bool) {
+	fmt.Printf("Error: %s\n", err)
+	if stopped {
+		close(c.done)
 	}
 }
 

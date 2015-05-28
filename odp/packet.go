@@ -4,13 +4,18 @@ import (
 	"syscall"
 )
 
-func (dp DatapathHandle) ConsumeMisses(consumer func(Attrs) error, errorHandler func(error)) error {
+type MissConsumer interface {
+	Miss(packet []byte, flowKeys FlowKeys) error
+	Error(err error, stopped bool)
+}
+
+func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 	sock, err := OpenNetlinkSocket(syscall.NETLINK_GENERIC)
 	if err != nil {
 		return err
 	}
 
-	go consumeMisses(dp, sock, consumer, errorHandler)
+	go consumeMisses(dp, sock, consumer)
 
 	vports, err := dp.EnumerateVports()
 	if err != nil {
@@ -27,7 +32,7 @@ func (dp DatapathHandle) ConsumeMisses(consumer func(Attrs) error, errorHandler 
 	return nil
 }
 
-func consumeMisses(dp DatapathHandle, sock *NetlinkSocket, consumer func(attrs Attrs) error, errorHandler func(error)) {
+func consumeMisses(dp DatapathHandle, sock *NetlinkSocket, consumer MissConsumer) {
 	handleUpcall := func(msg *NlMsgParser) error {
 		_, err := msg.ExpectNlMsghdr(dp.dpif.familyIds[PACKET])
 		if err != nil {
@@ -49,21 +54,31 @@ func consumeMisses(dp DatapathHandle, sock *NetlinkSocket, consumer func(attrs A
 			return err
 		}
 
-		return consumer(attrs)
+		fkattrs, err := attrs.GetNestedAttrs(OVS_PACKET_ATTR_KEY, false)
+		if err != nil {
+			return err
+		}
+
+		fks, err := ParseFlowKeys(fkattrs, nil)
+		if err != nil {
+			return err
+		}
+
+		return consumer.Miss(attrs[OVS_PACKET_ATTR_PACKET], fks)
 	}
 
 	for {
 		err := sock.Receive(0, 0, func(msg *NlMsgParser) (bool, error) {
 			err := handleUpcall(msg)
 			if err != nil {
-				errorHandler(err)
+				consumer.Error(err, false)
 			}
 
 			return false, nil
 		})
 
 		if err != nil {
-			errorHandler(err)
+			consumer.Error(err, true)
 		}
 	}
 }
