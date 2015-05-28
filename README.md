@@ -120,7 +120,7 @@ specified to the `vport add` command, described below.
 
 A network device can be exposed within a datapath as a vport with:
 
-    $GOPATH/bin/odp vport add netdev <netdev name>
+    $GOPATH/bin/odp vport add netdev <datapath name> <netdev name>
 
 This simply allows packets into and out of the datapath via the
 network device (which can be one end of a veth pair).
