@@ -819,10 +819,6 @@ func (dp DatapathHandle) CreateFlow(f FlowSpec) error {
 	return nil
 }
 
-type NoSuchFlowError struct{}
-
-func (NoSuchFlowError) Error() string { return "no such flow" }
-
 func (dp DatapathHandle) DeleteFlow(f FlowSpec) error {
 	dpif := dp.dpif
 
@@ -832,11 +828,11 @@ func (dp DatapathHandle) DeleteFlow(f FlowSpec) error {
 	f.toNlAttrs(req)
 
 	_, err := dpif.sock.Request(req)
-	if err == NetlinkError(syscall.ENOENT) {
-		err = NoSuchFlowError{}
-	}
-
 	return err
+}
+
+func IsNoSuchFlowError(err error) bool {
+	return err == NetlinkError(syscall.ENOENT)
 }
 
 type FlowInfo struct {

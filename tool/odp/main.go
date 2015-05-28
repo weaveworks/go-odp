@@ -855,7 +855,11 @@ func deleteFlow(f Flags) bool {
 
 	err = dp.DeleteFlow(flow)
 	if err != nil {
-		return printErr("%s", err)
+		if odp.IsNoSuchFlowError(err) {
+			return printErr("No such flow")
+		} else {
+			return printErr("%s", err)
+		}
 	}
 
 	return true
