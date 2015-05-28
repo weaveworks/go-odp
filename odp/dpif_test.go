@@ -153,7 +153,7 @@ func TestCreateVport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = vport.Delete()
+	err = dp.DeleteVport(vport)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestLookupVport(t *testing.T) {
 	}
 
 	name := fmt.Sprintf("test%d", rand.Intn(100000))
-	vport, err := dp.LookupVport(name)
+	vport, err := dp.LookupVportByName(name)
 	if !IsNoSuchVportError(err) {
 		t.Fatal(err)
 	}
@@ -196,12 +196,12 @@ func TestLookupVport(t *testing.T) {
 	}
 	defer dp.Delete()
 
-	vport, err = dp.LookupVport(name)
+	vport, err = dp.LookupVportByName(name)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = vport.Handle.Delete()
+	err = dp.DeleteVport(vport.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestEnumerateVports(t *testing.T) {
 	defer checkedDeleteDatapath(dp, t)
 
 	var names []string
-	var vports []VportHandle
+	var vports []VportID
 
 	for i := 0; i < 10; i++ {
 		name := fmt.Sprintf("test%d", rand.Intn(100000))
@@ -251,7 +251,7 @@ func TestEnumerateVports(t *testing.T) {
 	}
 
 	for _, vport := range vports {
-		vport.Delete()
+		dp.DeleteVport(vport)
 	}
 
 	gotvports, err = dp.EnumerateVports()

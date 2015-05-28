@@ -23,7 +23,7 @@ func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 	}
 
 	for _, vport := range vports {
-		err = vport.Handle.setUpcallPortId(sock.PortId())
+		err = dp.setUpcallPortId(vport.ID, sock.PortId())
 		if err != nil {
 			return err
 		}

@@ -416,7 +416,7 @@ func deleteVport(f Flags) bool {
 	}
 	defer dpif.Close()
 
-	vport, err := dpif.LookupVport(args[0])
+	dp, vport, err := dpif.LookupVportByName(args[0])
 	if err != nil {
 		if odp.IsNoSuchVportError(err) {
 			return printErr("Cannot find port \"%s\"", args[0])
@@ -425,7 +425,7 @@ func deleteVport(f Flags) bool {
 		return printErr("%s", err)
 	}
 
-	err = vport.Handle.Delete()
+	err = dp.DeleteVport(vport.ID)
 	if err != nil {
 		return printErr("%s", err)
 	}
@@ -718,14 +718,18 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (dp odp.DatapathHandle, flow odp.F
 	f.StringVar(&output, "output", "", "action: output to vports")
 
 	args := f.Parse(1, 1)
+	dpp, _ := lookupDatapath(dpif, args[0])
+	if dpp == nil {
+		return
+	}
 
 	if inPort != "" {
-		vport, err := dpif.LookupVport(inPort)
+		vport, err := dpp.LookupVportByName(inPort)
 		if err != nil {
 			printErr("%s", err)
 			return
 		}
-		flow.AddKey(odp.NewInPortFlowKey(vport.Handle))
+		flow.AddKey(odp.NewInPortFlowKey(vport.ID))
 	}
 
 	// The ethernet flow key is mandatory
@@ -760,18 +764,13 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (dp odp.DatapathHandle, flow odp.F
 
 	if output != "" {
 		for _, vpname := range strings.Split(output, ",") {
-			vport, err := dpif.LookupVport(vpname)
+			vport, err := dpp.LookupVportByName(vpname)
 			if err != nil {
 				printErr("%s", err)
 				return
 			}
-			flow.AddAction(odp.NewOutputAction(vport.Handle))
+			flow.AddAction(odp.NewOutputAction(vport.ID))
 		}
-	}
-
-	dpp, _ := lookupDatapath(dpif, args[0])
-	if dpp == nil {
-		return
 	}
 
 	return *dpp, flow, true
@@ -916,7 +915,7 @@ func printFlowKeys(fks odp.FlowKeys, dp odp.DatapathHandle) error {
 
 		switch fk := fk.(type) {
 		case odp.InPortFlowKey:
-			name, err := fk.VportHandle(dp).LookupName()
+			name, err := dp.LookupVportName(fk.VportID())
 			if err != nil {
 				return err
 			}
@@ -950,7 +949,7 @@ func printFlowActions(as []odp.Action, dp odp.DatapathHandle) error {
 	for _, a := range as {
 		switch a := a.(type) {
 		case odp.OutputAction:
-			name, err := a.VportHandle(dp).LookupName()
+			name, err := dp.LookupVportName(a.VportID())
 			if err != nil {
 				return err
 			}

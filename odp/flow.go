@@ -283,18 +283,14 @@ func parseInPortFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
 	return InPortFlowKey{fk}, nil
 }
 
-func NewInPortFlowKey(vport VportHandle) FlowKey {
+func NewInPortFlowKey(vport VportID) FlowKey {
 	fk := NewBlobFlowKey(OVS_KEY_ATTR_IN_PORT, 4)
-	*uint32At(fk.key(), 0) = vport.portNo
+	*uint32At(fk.key(), 0) = uint32(vport)
 	return fk
 }
 
-func (k InPortFlowKey) VportHandle(dp DatapathHandle) VportHandle {
-	return VportHandle{
-		dpif:      dp.dpif,
-		portNo:    *uint32At(k.key(), 0),
-		dpIfIndex: dp.ifindex,
-	}
+func (k InPortFlowKey) VportID() VportID {
+	return VportID(*uint32At(k.key(), 0))
 }
 
 // OVS_KEY_ATTR_ETHERNET: Ethernet header flow key
@@ -590,18 +586,14 @@ type Action interface {
 	Equals(Action) bool
 }
 
-type OutputAction uint32
+type OutputAction VportID
 
-func NewOutputAction(port VportHandle) OutputAction {
-	return OutputAction(port.portNo)
+func NewOutputAction(vport VportID) OutputAction {
+	return OutputAction(vport)
 }
 
-func (oa OutputAction) VportHandle(dp DatapathHandle) VportHandle {
-	return VportHandle{
-		dpif:      dp.dpif,
-		portNo:    uint32(oa),
-		dpIfIndex: dp.ifindex,
-	}
+func (oa OutputAction) VportID() VportID {
+	return VportID(oa)
 }
 
 func (OutputAction) typeId() uint16 {
@@ -820,11 +812,7 @@ func (dp DatapathHandle) CreateFlow(f FlowSpec) error {
 	f.toNlAttrs(req)
 
 	_, err := dpif.sock.Request(req)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func (dp DatapathHandle) DeleteFlow(f FlowSpec) error {
