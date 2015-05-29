@@ -57,6 +57,16 @@ func NewDpif() (*Dpif, error) {
 	return dpif, nil
 }
 
+// Open a dpif with a new socket, but reuing the family info
+func (dpif *Dpif) Reopen() (*Dpif, error) {
+	sock, err := OpenNetlinkSocket(syscall.NETLINK_GENERIC)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Dpif{sock: sock, families: dpif.families}, nil
+}
+
 func (dpif *Dpif) getMCGroup(family int, name string) (uint32, error) {
 	mcGroup, ok := dpif.families[family].mcGroups[name]
 	if !ok {

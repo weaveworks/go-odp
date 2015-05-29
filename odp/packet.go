@@ -17,6 +17,22 @@ func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 
 	go consumeMisses(dp, sock, consumer)
 
+	// We need to set th upcall port ID on all vports.  That
+	// includes vports that get added while we are listening, so
+	// we need to listen for them too.
+	vportDpif, err := dp.dpif.Reopen()
+	if err != nil {
+		return err
+	}
+
+	if err = dp.dpif.ConsumeVportEvents(missVportConsumer{
+		dpif:         vportDpif,
+		targetPortId: sock.PortId(),
+		missConsumer: consumer,
+	}); err != nil {
+		return err
+	}
+
 	vports, err := dp.EnumerateVports()
 	if err != nil {
 		return err
@@ -30,6 +46,25 @@ func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 	}
 
 	return nil
+}
+
+type missVportConsumer struct {
+	dpif         *Dpif
+	targetPortId uint32
+	missConsumer MissConsumer
+}
+
+func (c missVportConsumer) New(ifindex int32, vport Vport) error {
+	return DatapathHandle{c.dpif, ifindex}.setUpcallPortId(vport.ID, c.targetPortId)
+}
+
+func (c missVportConsumer) Delete(ifindex int32, vport Vport) error {
+	// don't care when vports go away
+	return nil
+}
+
+func (c missVportConsumer) Error(err error, stopped bool) {
+	c.missConsumer.Error(err, stopped)
 }
 
 func consumeMisses(dp DatapathHandle, sock *NetlinkSocket, consumer MissConsumer) {
