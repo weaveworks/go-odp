@@ -746,7 +746,7 @@ func (a FlowSpec) Equals(b FlowSpec) bool {
 }
 
 func (dp DatapathHandle) parseFlowMsg(msg *NlMsgParser) (Attrs, error) {
-	_, err := msg.ExpectNlMsghdr(dp.dpif.familyIds[FLOW])
+	_, err := msg.ExpectNlMsghdr(dp.dpif.families[FLOW].id)
 	if err != nil {
 		return nil, err
 	}
@@ -806,7 +806,7 @@ func parseFlowSpec(attrs Attrs) (f FlowSpec, err error) {
 func (dp DatapathHandle) CreateFlow(f FlowSpec) error {
 	dpif := dp.dpif
 
-	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[FLOW])
+	req := NewNlMsgBuilder(RequestFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_NEW, OVS_FLOW_VERSION)
 	req.putOvsHeader(dp.ifindex)
 	f.toNlAttrs(req)
@@ -818,7 +818,7 @@ func (dp DatapathHandle) CreateFlow(f FlowSpec) error {
 func (dp DatapathHandle) DeleteFlow(f FlowSpec) error {
 	dpif := dp.dpif
 
-	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[FLOW])
+	req := NewNlMsgBuilder(RequestFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_DEL, OVS_FLOW_VERSION)
 	req.putOvsHeader(dp.ifindex)
 	f.toNlAttrs(req)
@@ -862,7 +862,7 @@ func (dp DatapathHandle) EnumerateFlows() ([]FlowInfo, error) {
 	dpif := dp.dpif
 	res := make([]FlowInfo, 0)
 
-	req := NewNlMsgBuilder(DumpFlags, dpif.familyIds[FLOW])
+	req := NewNlMsgBuilder(DumpFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_GET, OVS_FLOW_VERSION)
 	req.putOvsHeader(dp.ifindex)
 

@@ -5,6 +5,11 @@ import (
 	"syscall"
 )
 
+type GenlFamily struct {
+	id       uint16
+	mcGroups map[string]uint32
+}
+
 func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8, version uint8) *GenlMsghdr {
 	pos := nlmsg.AlignGrow(syscall.NLMSG_ALIGNTO, SizeofGenlMsghdr)
 	res := genlMsghdrAt(nlmsg.buf, pos)
@@ -36,7 +41,7 @@ func (nlmsg *NlMsgParser) ExpectGenlMsghdr(cmd uint8) (*GenlMsghdr, error) {
 	return gh, nil
 }
 
-func (s *NetlinkSocket) LookupGenlFamily(name string) (uint16, error) {
+func (s *NetlinkSocket) LookupGenlFamily(name string) (family GenlFamily, err error) {
 	req := NewNlMsgBuilder(RequestFlags, GENL_ID_CTRL)
 
 	req.PutGenlMsghdr(CTRL_CMD_GETFAMILY, 0)
@@ -44,26 +49,53 @@ func (s *NetlinkSocket) LookupGenlFamily(name string) (uint16, error) {
 
 	resp, err := s.Request(req)
 	if err != nil {
-		return 0, err
+		return
 	}
 
-	if _, err := resp.ExpectNlMsghdr(GENL_ID_CTRL); err != nil {
-		return 0, err
+	_, err = resp.ExpectNlMsghdr(GENL_ID_CTRL)
+	if err != nil {
+		return
 	}
 
-	if _, err := resp.ExpectGenlMsghdr(CTRL_CMD_NEWFAMILY); err != nil {
-		return 0, err
+	_, err = resp.ExpectGenlMsghdr(CTRL_CMD_NEWFAMILY)
+	if err != nil {
+		return
 	}
 
 	attrs, err := resp.TakeAttrs()
 	if err != nil {
-		return 0, err
+		return
 	}
 
-	id, err := attrs.GetUint16(CTRL_ATTR_FAMILY_ID)
+	family.id, err = attrs.GetUint16(CTRL_ATTR_FAMILY_ID)
 	if err != nil {
-		return 0, err
+		return
 	}
 
-	return id, nil
+	mcGroupAttrs, err := attrs.GetNestedAttrs(CTRL_ATTR_MCAST_GROUPS, true)
+	if err != nil || mcGroupAttrs == nil {
+		return
+	}
+
+	family.mcGroups = make(map[string]uint32)
+	for _, data := range mcGroupAttrs {
+		groupAttrs, err := ParseNestedAttrs(data)
+		if err != nil {
+			return family, err
+		}
+
+		id, err := groupAttrs.GetUint32(CTRL_ATTR_MCAST_GRP_ID)
+		if err != nil {
+			return family, err
+		}
+
+		name, err := groupAttrs.GetString(CTRL_ATTR_MCAST_GRP_NAME)
+		if err != nil {
+			return family, err
+		}
+
+		family.mcGroups[name] = id
+	}
+
+	return
 }

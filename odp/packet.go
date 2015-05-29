@@ -34,7 +34,7 @@ func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 
 func consumeMisses(dp DatapathHandle, sock *NetlinkSocket, consumer MissConsumer) {
 	handleUpcall := func(msg *NlMsgParser) error {
-		_, err := msg.ExpectNlMsghdr(dp.dpif.familyIds[PACKET])
+		_, err := msg.ExpectNlMsghdr(dp.dpif.families[PACKET].id)
 		if err != nil {
 			return err
 		}
@@ -86,7 +86,7 @@ func consumeMisses(dp DatapathHandle, sock *NetlinkSocket, consumer MissConsumer
 func (dp DatapathHandle) Execute(packet []byte, keys FlowKeys, actions []Action) error {
 	dpif := dp.dpif
 
-	req := NewNlMsgBuilder(RequestFlags, dpif.familyIds[PACKET])
+	req := NewNlMsgBuilder(RequestFlags, dpif.families[PACKET].id)
 	req.PutGenlMsghdr(OVS_PACKET_CMD_EXECUTE, OVS_PACKET_VERSION)
 	req.putOvsHeader(dp.ifindex)
 	req.PutSliceAttr(OVS_PACKET_ATTR_PACKET, packet)

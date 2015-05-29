@@ -21,21 +21,21 @@ var familyNames = [FAMILY_COUNT]string{
 }
 
 type Dpif struct {
-	sock      *NetlinkSocket
-	familyIds [FAMILY_COUNT]uint16
+	sock     *NetlinkSocket
+	families [FAMILY_COUNT]GenlFamily
 }
 
-func lookupFamily(sock *NetlinkSocket, name string) (uint16, error) {
-	id, err := sock.LookupGenlFamily(name)
+func lookupFamily(sock *NetlinkSocket, name string) (GenlFamily, error) {
+	family, err := sock.LookupGenlFamily(name)
 	if err == nil {
-		return id, nil
+		return family, nil
 	}
 
 	if err == NetlinkError(syscall.ENOENT) {
-		return 0, fmt.Errorf("Generic netlink family '%s' unavailable; the Open vSwitch kernel module is probably not loaded, try 'modprobe openvswitch'", name)
+		err = fmt.Errorf("Generic netlink family '%s' unavailable; the Open vSwitch kernel module is probably not loaded, try 'modprobe openvswitch'", name)
 	}
 
-	return 0, err
+	return GenlFamily{}, err
 }
 
 func NewDpif() (*Dpif, error) {
@@ -47,7 +47,7 @@ func NewDpif() (*Dpif, error) {
 	dpif := &Dpif{sock: sock}
 
 	for i := 0; i < FAMILY_COUNT; i++ {
-		dpif.familyIds[i], err = lookupFamily(sock, familyNames[i])
+		dpif.families[i], err = lookupFamily(sock, familyNames[i])
 		if err != nil {
 			sock.Close()
 			return nil, err

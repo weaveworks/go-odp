@@ -41,6 +41,12 @@ const (
 	CTRL_ATTR_MCAST_GROUPS = 7
 )
 
+const (
+	CTRL_ATTR_MCAST_GRP_UNSPEC = 0
+	CTRL_ATTR_MCAST_GRP_NAME   = 1
+	CTRL_ATTR_MCAST_GRP_ID     = 2
+)
+
 type OvsHeader struct {
 	DpIfIndex int32
 }
