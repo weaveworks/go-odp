@@ -77,6 +77,6 @@ func (dp DatapathHandle) Execute(packet []byte, keys FlowKeys, actions []Action)
 		}
 	})
 
-	_, err := dpif.sock.Request(req)
+	_, err := dpif.sock.send(req)
 	return err
 }
