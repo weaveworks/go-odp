@@ -11,22 +11,12 @@ type datapathInfo struct {
 }
 
 func (dpif *Dpif) parseDatapathInfo(msg *NlMsgParser) (res datapathInfo, err error) {
-	_, err = msg.ExpectNlMsghdr(dpif.families[DATAPATH].id)
+	_, ovshdr, err := dpif.checkNlMsgHeaders(msg, DATAPATH, OVS_DP_CMD_NEW)
 	if err != nil {
 		return
 	}
 
-	_, err = msg.ExpectGenlMsghdr(OVS_DP_CMD_NEW)
-	if err != nil {
-		return
-	}
-
-	ovshdr, err := msg.takeOvsHeader()
-	if err != nil {
-		return
-	}
 	res.ifindex = ovshdr.DpIfIndex
-
 	attrs, err := msg.TakeAttrs()
 	if err != nil {
 		return
@@ -160,8 +150,8 @@ func (dp DatapathHandle) Delete() error {
 	return nil
 }
 
-func (dp DatapathHandle) checkOvsHeader(msg *NlMsgParser) error {
-	ovshdr, err := msg.takeOvsHeader()
+func (dp DatapathHandle) checkNlMsgHeaders(msg *NlMsgParser, family int, cmd int) error {
+	_, ovshdr, err := dp.dpif.checkNlMsgHeaders(msg, family, cmd)
 	if err != nil {
 		return err
 	}

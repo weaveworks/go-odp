@@ -241,8 +241,25 @@ func (nlmsg *NlMsgParser) CheckAvailable(size uintptr) error {
 	return nil
 }
 
-func (nlmsg *NlMsgParser) checkHeader(expectedPortId uint32, expectedSeq uint32) (relevant bool, err error) {
-	// nextNlMsg checks that there is an nlmsghdr-worth of data
+func (nlmsg *NlMsgParser) checkHeader() error {
+	// nextNlMsg ensures that there is an nlmsghdr-worth of data
+	// present
+	h := nlmsg.NlMsghdr()
+	if h.Type == syscall.NLMSG_ERROR {
+		nlerr := nlMsgerrAt(nlmsg.data, nlmsg.pos+syscall.NLMSG_HDRLEN)
+		if nlerr.Error != 0 {
+			return NetlinkError(-nlerr.Error)
+		}
+
+		// an error code of 0 means the error is an ack, so
+		// return normally.
+	}
+
+	return nil
+}
+
+func (nlmsg *NlMsgParser) checkResponseHeader(expectedPortId uint32, expectedSeq uint32) (relevant bool, err error) {
+	// nextNlMsg ensures that there is an nlmsghdr-worth of data
 	// present
 	h := nlmsg.NlMsghdr()
 	if h.Pid != expectedPortId {
@@ -251,28 +268,17 @@ func (nlmsg *NlMsgParser) checkHeader(expectedPortId uint32, expectedSeq uint32)
 
 	if h.Seq != expectedSeq {
 		// This doesn't necessarily indicate an error.  For
-		// example, if a requestMulti was interrupted due to
-		// an error, we might still be getting response
-		// messages back, that we should simply discard.  On
-		// the other hand, sequence number mismatches might
-		// indicate bugs, so it is sometimes nice to see them
-		// in development.
+		// example, if an early requestMulti was interrupted
+		// due to an error, we might still be getting its
+		// response messages back that, and we should discard
+		// them.  On the other hand, sequence number
+		// mismatches might indicate bugs, so it is sometimes
+		// nice to see them in development.
 		fmt.Printf("netlink reply sequence number mismatch (got %d, expected %d)\n", h.Seq, expectedSeq)
 		return false, nil
 	}
 
-	if h.Type == syscall.NLMSG_ERROR {
-		nlerr := nlMsgerrAt(nlmsg.data, nlmsg.pos+syscall.NLMSG_HDRLEN)
-
-		if nlerr.Error != 0 {
-			return true, NetlinkError(-nlerr.Error)
-		}
-
-		// an error code of 0 means the erorr is an ack, so
-		// return normally.
-	}
-
-	return true, nil
+	return true, nlmsg.checkHeader()
 }
 
 func (nlmsg *NlMsgParser) ExpectNlMsghdr(typ uint16) (*syscall.NlMsghdr, error) {
@@ -502,7 +508,7 @@ func (s *NetlinkSocket) recv(peer uint32) (*NlMsgParser, error) {
 	}
 }
 
-func (s *NetlinkSocket) Receive(expectedPortId uint32, expectedSeq uint32, consumer func(*NlMsgParser) (bool, error)) error {
+func (s *NetlinkSocket) Receive(consumer func(*NlMsgParser) (bool, error)) error {
 	for {
 		resp, err := s.recv(0)
 		if err != nil {
@@ -518,16 +524,9 @@ func (s *NetlinkSocket) Receive(expectedPortId uint32, expectedSeq uint32, consu
 		}
 
 		for {
-			relevant, err := msg.checkHeader(expectedPortId, expectedSeq)
-			if err != nil {
+			done, err := consumer(msg)
+			if done || err != nil {
 				return err
-			}
-
-			if relevant {
-				done, err := consumer(msg)
-				if done || err != nil {
-					return err
-				}
 			}
 
 			msg, err = resp.nextNlMsg()
@@ -553,9 +552,12 @@ func (s *NetlinkSocket) Request(req *NlMsgBuilder) (resp *NlMsgParser, err error
 		return nil, err
 	}
 
-	err = s.Receive(s.PortId(), seq, func(msg *NlMsgParser) (bool, error) {
-		resp = msg
-		return true, nil
+	err = s.Receive(func(msg *NlMsgParser) (bool, error) {
+		relevant, err := msg.checkResponseHeader(s.PortId(), seq)
+		if relevant && err == nil {
+			resp = msg
+		}
+		return true, err
 	})
 	return
 }
@@ -569,7 +571,12 @@ func (s *NetlinkSocket) RequestMulti(req *NlMsgBuilder, consumer func(*NlMsgPars
 		return err
 	}
 
-	return s.Receive(s.PortId(), seq, func(msg *NlMsgParser) (bool, error) {
+	return s.Receive(func(msg *NlMsgParser) (bool, error) {
+		relevant, err := msg.checkResponseHeader(s.PortId(), seq)
+		if !relevant || err != nil {
+			return false, err
+		}
+
 		if msg.NlMsghdr().Type == syscall.NLMSG_DONE {
 			return true, processNlMsgDone(msg)
 		}
@@ -599,5 +606,31 @@ func processNlMsgDone(msg *NlMsgParser) error {
 		return nil
 	} else {
 		return NetlinkError(-errno)
+	}
+}
+
+type Consumer interface {
+	Error(err error, stopped bool)
+}
+
+func (s *NetlinkSocket) consume(consumer Consumer, handler func(*NlMsgParser) error) {
+	for {
+		err := s.Receive(func(msg *NlMsgParser) (bool, error) {
+			err := msg.checkHeader()
+			if err == nil {
+				err = handler(msg)
+				if err == nil {
+					return false, nil
+				}
+			}
+
+			consumer.Error(err, false)
+			return false, nil
+		})
+
+		if err != nil {
+			consumer.Error(err, true)
+			break
+		}
 	}
 }

@@ -746,18 +746,7 @@ func (a FlowSpec) Equals(b FlowSpec) bool {
 }
 
 func (dp DatapathHandle) parseFlowMsg(msg *NlMsgParser) (Attrs, error) {
-	_, err := msg.ExpectNlMsghdr(dp.dpif.families[FLOW].id)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = msg.ExpectGenlMsghdr(OVS_FLOW_CMD_NEW)
-	if err != nil {
-		return nil, err
-	}
-
-	err = dp.checkOvsHeader(msg)
-	if err != nil {
+	if err := dp.checkNlMsgHeaders(msg, FLOW, OVS_FLOW_CMD_NEW); err != nil {
 		return nil, err
 	}
 

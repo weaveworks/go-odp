@@ -18,14 +18,14 @@ func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8, version uint8) *GenlMsghdr {
 	return res
 }
 
-func (nlmsg *NlMsgParser) ExpectGenlMsghdr(cmd uint8) (*GenlMsghdr, error) {
+func (nlmsg *NlMsgParser) CheckGenlMsghdr(cmd int) (*GenlMsghdr, error) {
 	pos, err := nlmsg.AlignAdvance(syscall.NLMSG_ALIGNTO, SizeofGenlMsghdr)
 	if err != nil {
 		return nil, err
 	}
 
 	gh := genlMsghdrAt(nlmsg.data, pos)
-	if gh.Cmd != cmd {
+	if cmd >= 0 && gh.Cmd != uint8(cmd) {
 		return nil, fmt.Errorf("generic netlink response has wrong cmd (got %d, expected %d)", gh.Cmd, cmd)
 	}
 
@@ -57,7 +57,7 @@ func (s *NetlinkSocket) LookupGenlFamily(name string) (family GenlFamily, err er
 		return
 	}
 
-	_, err = resp.ExpectGenlMsghdr(CTRL_CMD_NEWFAMILY)
+	_, err = resp.CheckGenlMsghdr(CTRL_CMD_NEWFAMILY)
 	if err != nil {
 		return
 	}

@@ -2,6 +2,9 @@ package odp
 
 import "syscall"
 
+// from linux/include/linux/socket.h
+const SOL_NETLINK = 270
+
 type GenlMsghdr struct {
 	Cmd      uint8
 	Version  uint8

@@ -138,6 +138,7 @@ var commands = subcommands{
 			},
 			"delete": command{deleteVport},
 			"list":   command{listVports},
+			"listen": command{listenForVports},
 		},
 	},
 	"flow": subcommands{
@@ -260,25 +261,32 @@ func listenOnDatapath(f Flags) bool {
 	}
 
 	done := make(chan struct{})
-	dp.ConsumeMisses(missConsumer{miss, done})
+	if err := dp.ConsumeMisses(missConsumer{consumer{done}, miss}); err != nil {
+		return printErr("%s", err)
+	}
+
 	<-done
 	return true
 }
 
-type missConsumer struct {
-	miss func([]byte, odp.FlowKeys) error
+type consumer struct {
 	done chan<- struct{}
 }
 
-func (c missConsumer) Miss(packet []byte, flowKeys odp.FlowKeys) error {
-	return c.miss(packet, flowKeys)
-}
-
-func (c missConsumer) Error(err error, stopped bool) {
+func (c consumer) Error(err error, stopped bool) {
 	fmt.Printf("Error: %s\n", err)
 	if stopped {
 		close(c.done)
 	}
+}
+
+type missConsumer struct {
+	consumer
+	miss func([]byte, odp.FlowKeys) error
+}
+
+func (c missConsumer) Miss(packet []byte, flowKeys odp.FlowKeys) error {
+	return c.miss(packet, flowKeys)
 }
 
 type pcapHeader struct {
@@ -476,19 +484,66 @@ func printVports(dpname string, dp odp.DatapathHandle) bool {
 	}
 
 	for _, vport := range vports {
-		spec := vport.Spec
-		fmt.Printf("%s %s %s", spec.TypeName(), dpname, spec.Name())
-
-		switch spec := spec.(type) {
-		case odp.VxlanVportSpec:
-			fmt.Printf(" --port=%d", spec.Port)
-			break
-		}
-
-		fmt.Printf("\n")
+		printVport("", dpname, vport)
 	}
 
 	return true
+}
+
+func listenForVports(f Flags) bool {
+	f.Parse(0, 0)
+
+	dpif, err := odp.NewDpif()
+	if err != nil {
+		return printErr("%s", err)
+	}
+	defer dpif.Close()
+
+	done := make(chan struct{})
+	if err := dpif.ConsumeVportEvents(vportEventsConsumer{dpif, consumer{done}}); err != nil {
+		return printErr("%s", err)
+	}
+
+	<-done
+	return true
+}
+
+type vportEventsConsumer struct {
+	dpif *odp.Dpif
+	consumer
+}
+
+func (c vportEventsConsumer) New(ifindex int32, vport odp.Vport) error {
+	dp, err := c.dpif.LookupDatapathByIndex(ifindex)
+	if err != nil {
+		return err
+	}
+
+	printVport("add ", dp.Name, vport)
+	return nil
+}
+
+func (c vportEventsConsumer) Delete(ifindex int32, vport odp.Vport) error {
+	dp, err := c.dpif.LookupDatapathByIndex(ifindex)
+	if err != nil {
+		return err
+	}
+
+	printVport("delete ", dp.Name, vport)
+	return nil
+}
+
+func printVport(prefix string, dpname string, vport odp.Vport) {
+	spec := vport.Spec
+	fmt.Printf("%s%s %s %s", prefix, spec.TypeName(), dpname, spec.Name())
+
+	switch spec := spec.(type) {
+	case odp.VxlanVportSpec:
+		fmt.Printf(" --port=%d", spec.Port)
+		break
+	}
+
+	fmt.Printf("\n")
 }
 
 func parseMAC(s string) (mac [6]byte, err error) {
