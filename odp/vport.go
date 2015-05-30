@@ -86,7 +86,7 @@ func parseVxlanVportSpec(name string, opts Attrs) (VportSpec, error) {
 // Vport numbers are scoped to a particular datapath
 type VportID uint32
 
-func (dpif *Dpif) parseVport(msg *NlMsgParser) (id VportID, s VportSpec, err error) {
+func parseVport(msg *NlMsgParser) (id VportID, s VportSpec, err error) {
 	attrs, err := msg.TakeAttrs()
 	if err != nil {
 		return
@@ -160,7 +160,7 @@ func (dp DatapathHandle) CreateVport(spec VportSpec) (VportID, error) {
 		return 0, err
 	}
 
-	id, _, err := dpif.parseVport(resp)
+	id, _, err := parseVport(resp)
 	if err != nil {
 		return 0, err
 	}
@@ -193,7 +193,7 @@ func lookupVport(dpif *Dpif, dpifindex int32, name string) (int32, Vport, error)
 		return 0, Vport{}, err
 	}
 
-	id, s, err := dpif.parseVport(resp)
+	id, s, err := parseVport(resp)
 	if err != nil {
 		return 0, Vport{}, err
 	}
@@ -227,7 +227,7 @@ func (dp DatapathHandle) LookupVport(id VportID) (Vport, error) {
 		return Vport{}, err
 	}
 
-	id, s, err := dp.dpif.parseVport(resp)
+	id, s, err := parseVport(resp)
 	if err != nil {
 		return Vport{}, err
 	}
@@ -251,28 +251,27 @@ func (dp DatapathHandle) LookupVportName(id VportID) (string, error) {
 }
 
 func (dp DatapathHandle) EnumerateVports() ([]Vport, error) {
-	dpif := dp.dpif
-	res := make([]Vport, 0)
-
-	req := NewNlMsgBuilder(DumpFlags, dpif.families[VPORT].id)
+	req := NewNlMsgBuilder(DumpFlags, dp.dpif.families[VPORT].id)
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
 	req.putOvsHeader(dp.ifindex)
 
+	var res []Vport
 	consumer := func(resp *NlMsgParser) error {
 		err := dp.checkNlMsgHeaders(resp, VPORT, OVS_VPORT_CMD_NEW)
 		if err != nil {
 			return err
 		}
 
-		id, spec, err := dpif.parseVport(resp)
+		id, spec, err := parseVport(resp)
 		if err != nil {
 			return err
 		}
+
 		res = append(res, Vport{id, spec})
 		return nil
 	}
 
-	err := dpif.sock.RequestMulti(req, consumer)
+	err := dp.dpif.sock.RequestMulti(req, consumer)
 	if err != nil {
 		return nil, err
 	}
@@ -323,13 +322,14 @@ func (dpif *Dpif) ConsumeVportEvents(consumer VportEventsConsumer) error {
 }
 
 func consumeVportEvents(dpif *Dpif, sock *NetlinkSocket, consumer VportEventsConsumer) {
+	defer sock.Close()
 	sock.consume(consumer, func(msg *NlMsgParser) error {
 		genlhdr, ovshdr, err := dpif.checkNlMsgHeaders(msg, VPORT, -1)
 		if err != nil {
 			return err
 		}
 
-		id, spec, err := dpif.parseVport(msg)
+		id, spec, err := parseVport(msg)
 		if err != nil {
 			return err
 		}

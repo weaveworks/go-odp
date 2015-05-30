@@ -692,7 +692,7 @@ type FlowSpec struct {
 }
 
 func NewFlowSpec() FlowSpec {
-	return FlowSpec{FlowKeys: make(FlowKeys), Actions: make([]Action, 0)}
+	return FlowSpec{FlowKeys: make(FlowKeys), Actions: nil}
 }
 
 func (f *FlowSpec) AddKey(k FlowKey) {

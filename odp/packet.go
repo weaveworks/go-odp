@@ -15,6 +15,7 @@ func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 		return err
 	}
 
+	portId := sock.PortId()
 	go consumeMisses(dp, sock, consumer)
 
 	// We need to set th upcall port ID on all vports.  That
@@ -27,7 +28,7 @@ func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 
 	if err = dp.dpif.ConsumeVportEvents(missVportConsumer{
 		dpif:         vportDpif,
-		targetPortId: sock.PortId(),
+		targetPortId: portId,
 		missConsumer: consumer,
 	}); err != nil {
 		return err
@@ -39,7 +40,7 @@ func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 	}
 
 	for _, vport := range vports {
-		err = dp.setUpcallPortId(vport.ID, sock.PortId())
+		err = dp.setUpcallPortId(vport.ID, portId)
 		if err != nil {
 			return err
 		}
@@ -68,6 +69,7 @@ func (c missVportConsumer) Error(err error, stopped bool) {
 }
 
 func consumeMisses(dp DatapathHandle, sock *NetlinkSocket, consumer MissConsumer) {
+	defer sock.Close()
 	sock.consume(consumer, func(msg *NlMsgParser) error {
 		if err := dp.checkNlMsgHeaders(msg, PACKET, OVS_PACKET_CMD_MISS); err != nil {
 			return err
