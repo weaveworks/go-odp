@@ -555,11 +555,17 @@ var flowKeyParsers = FlowKeyParsers{
 
 	OVS_KEY_ATTR_ETHERNET:  ethernetFlowKeyParser,
 	OVS_KEY_ATTR_ETHERTYPE: blobFlowKeyParser(2, nil),
+	OVS_KEY_ATTR_IPV4:      blobFlowKeyParser(12, nil),
 	OVS_KEY_ATTR_IPV6:      blobFlowKeyParser(40, nil),
+	OVS_KEY_ATTR_TCP:       blobFlowKeyParser(4, nil),
+	OVS_KEY_ATTR_UDP:       blobFlowKeyParser(4, nil),
+	OVS_KEY_ATTR_ICMP:      blobFlowKeyParser(2, nil),
 	OVS_KEY_ATTR_ICMPV6:    blobFlowKeyParser(2, nil),
 	OVS_KEY_ATTR_ARP:       blobFlowKeyParser(24, nil),
+	OVS_KEY_ATTR_ND:        blobFlowKeyParser(28, nil),
 	OVS_KEY_ATTR_SKB_MARK:  blobFlowKeyParser(4, nil),
 	OVS_KEY_ATTR_DP_HASH:   blobFlowKeyParser(4, nil),
+	OVS_KEY_ATTR_TCP_FLAGS: blobFlowKeyParser(2, nil),
 	OVS_KEY_ATTR_RECIRC_ID: blobFlowKeyParser(4, nil),
 
 	OVS_KEY_ATTR_TUNNEL: FlowKeyParser{
