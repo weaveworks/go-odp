@@ -1,6 +1,7 @@
 package odp
 
 import (
+	"sync"
 	"syscall"
 )
 
@@ -26,11 +27,13 @@ func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 		return err
 	}
 
-	if err = dp.dpif.ConsumeVportEvents(missVportConsumer{
+	vportConsumer := &missVportConsumer{
 		dpif:         vportDpif,
-		targetPortId: portId,
+		upcallPortId: portId,
 		missConsumer: consumer,
-	}); err != nil {
+		vportsDone:   make(map[VportID]struct{}),
+	}
+	if err = dp.dpif.ConsumeVportEvents(vportConsumer); err != nil {
 		return err
 	}
 
@@ -40,7 +43,7 @@ func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 	}
 
 	for _, vport := range vports {
-		err = dp.setUpcallPortId(vport.ID, portId)
+		err = vportConsumer.setVportUpcallPortId(dp, vport.ID)
 		if err != nil {
 			return err
 		}
@@ -51,20 +54,48 @@ func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 
 type missVportConsumer struct {
 	dpif         *Dpif
-	targetPortId uint32
+	upcallPortId uint32
 	missConsumer MissConsumer
+
+	lock       sync.Mutex
+	vportsDone map[VportID]struct{}
 }
 
-func (c missVportConsumer) New(ifindex int32, vport Vport) error {
-	return DatapathHandle{c.dpif, ifindex}.setUpcallPortId(vport.ID, c.targetPortId)
-}
+// Set a vport's upcall port ID.  This generates a OVS_VPORT_CMD_NEW
+// (not a OVS_VPORT_CMD_SET), leading to a call of the New method
+// below.  So we need to record which vports we already processed in
+// order to avoid a vicious circle.
+func (c *missVportConsumer) setVportUpcallPortId(dp DatapathHandle, vport VportID) error {
+	c.lock.Lock()
+	_, doneAlready := c.vportsDone[vport]
+	c.lock.Unlock()
 
-func (c missVportConsumer) Delete(ifindex int32, vport Vport) error {
-	// don't care when vports go away
+	if doneAlready {
+		return nil
+	}
+
+	if err := dp.setVportUpcallPortId(vport, c.upcallPortId); err != nil {
+		return err
+	}
+
+	c.lock.Lock()
+	c.vportsDone[vport] = struct{}{}
+	c.lock.Unlock()
 	return nil
 }
 
-func (c missVportConsumer) Error(err error, stopped bool) {
+func (c *missVportConsumer) New(ifindex int32, vport Vport) error {
+	return c.setVportUpcallPortId(DatapathHandle{c.dpif, ifindex}, vport.ID)
+}
+
+func (c *missVportConsumer) Delete(ifindex int32, vport Vport) error {
+	c.lock.Lock()
+	delete(c.vportsDone, vport.ID)
+	c.lock.Unlock()
+	return nil
+}
+
+func (c *missVportConsumer) Error(err error, stopped bool) {
 	c.missConsumer.Error(err, stopped)
 }
 

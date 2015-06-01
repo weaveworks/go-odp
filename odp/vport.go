@@ -289,7 +289,7 @@ func (dp DatapathHandle) DeleteVport(id VportID) error {
 	return err
 }
 
-func (dp DatapathHandle) setUpcallPortId(id VportID, pid uint32) error {
+func (dp DatapathHandle) setVportUpcallPortId(id VportID, pid uint32) error {
 	req := NewNlMsgBuilder(RequestFlags, dp.dpif.families[VPORT].id)
 	req.PutGenlMsghdr(OVS_VPORT_CMD_SET, OVS_VPORT_VERSION)
 	req.putOvsHeader(dp.ifindex)
