@@ -1,7 +1,9 @@
 package odp
 
 import (
+	"encoding/hex"
 	"fmt"
+	"net"
 	"syscall"
 )
 
@@ -139,6 +141,10 @@ func NewBlobFlowKey(typ uint16, size int) BlobFlowKey {
 		mask[i] = 0xff
 	}
 	return BlobFlowKey{typ: typ, keyMask: km}
+}
+
+func (key BlobFlowKey) String() string {
+	return fmt.Sprintf("BlobFlowKey{type: %d, key: %s, mask: %s}", key.typ, hex.EncodeToString(key.key()), hex.EncodeToString(key.mask()))
 }
 
 func (key BlobFlowKey) typeId() uint16 {
@@ -289,6 +295,10 @@ func NewInPortFlowKey(vport VportID) FlowKey {
 	return fk
 }
 
+func (key InPortFlowKey) String() string {
+	return fmt.Sprintf("InPortFlowKey{vport: %d}", key.VportID())
+}
+
 func (k InPortFlowKey) VportID() VportID {
 	return VportID(*uint32At(k.key(), 0))
 }
@@ -310,6 +320,22 @@ func NewEthernetFlowKey(key OvsKeyEthernet, mask OvsKeyEthernet) FlowKey {
 	*ovsKeyEthernetAt(fk.key(), 0) = key
 	*ovsKeyEthernetAt(fk.mask(), 0) = mask
 	return EthernetFlowKey{fk}
+}
+
+func (key EthernetFlowKey) String() string {
+	var typ, mask string
+
+	if key.typ != OVS_KEY_ATTR_ETHERNET {
+		typ = fmt.Sprintf("type: %d, ", key.typ)
+	}
+
+	if !AllBytes(key.mask(), 0xff) {
+		m := key.Mask()
+		mask = fmt.Sprintf(", mask: {src: %s, dst: %s}", net.HardwareAddr(m.EthSrc[:]), net.HardwareAddr(m.EthDst[:]))
+	}
+
+	k := key.Key()
+	return fmt.Sprintf("EthernetFlowKey{%skey: {src: %s, dst: %s}%s}", typ, net.HardwareAddr(k.EthSrc[:]), net.HardwareAddr(k.EthDst[:]), mask)
 }
 
 func (k EthernetFlowKey) Key() OvsKeyEthernet {
@@ -598,6 +624,10 @@ func NewOutputAction(vport VportID) OutputAction {
 	return OutputAction(vport)
 }
 
+func (oa OutputAction) String() string {
+	return fmt.Sprintf("OutputAction{vport: %d}", oa)
+}
+
 func (oa OutputAction) VportID() VportID {
 	return VportID(oa)
 }
@@ -701,12 +731,26 @@ func NewFlowSpec() FlowSpec {
 	return FlowSpec{FlowKeys: make(FlowKeys), Actions: nil}
 }
 
+func (f FlowSpec) String() string {
+	var keys []FlowKey
+
+	for _, k := range f.FlowKeys {
+		keys = append(keys, k)
+	}
+
+	return fmt.Sprintf("FlowSpec{keys: %v, actions: %v}", keys, f.Actions)
+}
+
 func (f *FlowSpec) AddKey(k FlowKey) {
 	f.FlowKeys.Add(k)
 }
 
 func (f *FlowSpec) AddAction(a Action) {
 	f.Actions = append(f.Actions, a)
+}
+
+func (f *FlowSpec) AddActions(as []Action) {
+	f.Actions = append(f.Actions, as...)
 }
 
 func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
