@@ -22,20 +22,35 @@ func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
 		return nil, err
 	}
 
+	success := false
+	defer func() {
+		if !success {
+			syscall.Close(fd)
+		}
+	}()
+
+	// It's fairly easy to provoke ENOBUFS from a netlink socket
+	// receiving miss upcalls when every packet misses.  The
+	// default socket buffer size is relatively small at 200KB,
+	// and the default of /proc/sys/net/core/rmem_max means we
+	// can't easily increase it.
+	if err := syscall.SetsockoptInt(fd, SOL_NETLINK, syscall.NETLINK_NO_ENOBUFS, 1); err != nil {
+		return nil, err
+	}
+
 	addr := syscall.SockaddrNetlink{Family: syscall.AF_NETLINK}
 	if err := syscall.Bind(fd, &addr); err != nil {
-		syscall.Close(fd)
 		return nil, err
 	}
 
 	localaddr, err := syscall.Getsockname(fd)
 	if err != nil {
-		syscall.Close(fd)
 		return nil, err
 	}
 
 	switch nladdr := localaddr.(type) {
 	case *syscall.SockaddrNetlink:
+		success = true
 		return &NetlinkSocket{fd: fd, addr: nladdr}, nil
 
 	default:
