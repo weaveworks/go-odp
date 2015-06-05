@@ -683,6 +683,41 @@ func (a SetTunnelAction) Equals(bx Action) bool {
 	return a.TunnelAttrs == b.TunnelAttrs
 }
 
+func (a *SetTunnelAction) SetTunnelId(id [8]byte) {
+	a.TunnelId = id
+	a.Present.TunnelId = true
+}
+
+func (a *SetTunnelAction) SetIpv4Src(addr [4]byte) {
+	a.Ipv4Src = addr
+	a.Present.Ipv4Src = true
+}
+
+func (a *SetTunnelAction) SetIpv4Dst(addr [4]byte) {
+	a.Ipv4Dst = addr
+	a.Present.Ipv4Dst = true
+}
+
+func (a *SetTunnelAction) SetTos(tos uint8) {
+	a.Tos = tos
+	a.Present.Tos = true
+}
+
+func (a *SetTunnelAction) SetTtl(ttl uint8) {
+	a.Ttl = ttl
+	a.Present.Ttl = true
+}
+
+func (a *SetTunnelAction) SetDf(df bool) {
+	a.Df = df
+	a.Present.Df = true
+}
+
+func (a *SetTunnelAction) SetCsum(csum bool) {
+	a.Csum = csum
+	a.Present.Csum = true
+}
+
 func parseSetAction(typ uint16, data []byte) (Action, error) {
 	attrs, err := ParseNestedAttrs(data)
 	if err != nil {
