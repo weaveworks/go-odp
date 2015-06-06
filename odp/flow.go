@@ -374,12 +374,15 @@ type TunnelAttrsPresence struct {
 
 // Extract presence information from a TunnelAttrs mask
 func (ta TunnelAttrs) present() TunnelAttrsPresence {
+	// The kernel requires Ipv4Dst and Ttl to be present, so we
+	// always mark those as present, even if we end up wildcarding
+	// them.
 	return TunnelAttrsPresence{
 		TunnelId: !AllBytes(ta.TunnelId[:], 0),
 		Ipv4Src:  !AllBytes(ta.Ipv4Src[:], 0),
-		Ipv4Dst:  !AllBytes(ta.Ipv4Dst[:], 0),
+		Ipv4Dst:  true,
 		Tos:      ta.Tos != 0,
-		Ttl:      ta.Ttl != 0,
+		Ttl:      true,
 		Df:       ta.Df,
 		Csum:     ta.Csum,
 	}
@@ -789,11 +792,23 @@ func (f *FlowSpec) AddActions(as []Action) {
 }
 
 func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
+	// The ethernet flow key is mandatory, even if it is
+	// completely wildcarded.
+	var defaultEthernetFlowKey FlowKey
+	if f.FlowKeys[OVS_KEY_ATTR_ETHERNET] == nil {
+		defaultEthernetFlowKey = NewEthernetFlowKey(OvsKeyEthernet{},
+			OvsKeyEthernet{})
+	}
+
 	msg.PutNestedAttrs(OVS_FLOW_ATTR_KEY, func() {
 		for _, k := range f.FlowKeys {
 			if !k.Ignored() {
 				k.putKeyNlAttr(msg)
 			}
+		}
+
+		if defaultEthernetFlowKey != nil {
+			defaultEthernetFlowKey.putKeyNlAttr(msg)
 		}
 	})
 
@@ -802,6 +817,10 @@ func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
 			if !k.Ignored() {
 				k.putMaskNlAttr(msg)
 			}
+		}
+
+		if defaultEthernetFlowKey != nil {
+			defaultEthernetFlowKey.putMaskNlAttr(msg)
 		}
 	})
 
