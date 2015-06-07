@@ -1,6 +1,7 @@
 package odp
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -144,7 +145,8 @@ func NewBlobFlowKey(typ uint16, size int) BlobFlowKey {
 }
 
 func (key BlobFlowKey) String() string {
-	return fmt.Sprintf("BlobFlowKey{type: %d, key: %s, mask: %s}", key.typ, hex.EncodeToString(key.key()), hex.EncodeToString(key.mask()))
+	return fmt.Sprintf("BlobFlowKey{type: %d, key: %s, mask: %s}", key.typ,
+		hex.EncodeToString(key.key()), hex.EncodeToString(key.mask()))
 }
 
 func (key BlobFlowKey) typeId() uint16 {
@@ -322,20 +324,35 @@ func NewEthernetFlowKey(key OvsKeyEthernet, mask OvsKeyEthernet) FlowKey {
 	return EthernetFlowKey{fk}
 }
 
-func (key EthernetFlowKey) String() string {
-	var typ, mask string
+func (fk EthernetFlowKey) String() string {
+	var buf bytes.Buffer
+	var sep string
+	fmt.Fprint(&buf, "EthernetFlowKey{")
 
-	if key.typ != OVS_KEY_ATTR_ETHERNET {
-		typ = fmt.Sprintf("type: %d, ", key.typ)
+	if fk.typ != OVS_KEY_ATTR_ETHERNET {
+		fmt.Fprintf(&buf, "type: %d", fk.typ)
+		sep = ", "
 	}
 
-	if !AllBytes(key.mask(), 0xff) {
-		m := key.Mask()
-		mask = fmt.Sprintf(", mask: {src: %s, dst: %s}", net.HardwareAddr(m.EthSrc[:]), net.HardwareAddr(m.EthDst[:]))
-	}
+	k := fk.Key()
+	m := fk.Mask()
+	ha := func(s []byte) string { return net.HardwareAddr(s).String() }
+	writeMaskedBytes(&buf, &sep, "src", k.EthSrc[:], m.EthSrc[:], ha)
+	writeMaskedBytes(&buf, &sep, "dst", k.EthDst[:], m.EthDst[:], ha)
+	fmt.Fprint(&buf, "}")
+	return buf.String()
+}
 
-	k := key.Key()
-	return fmt.Sprintf("EthernetFlowKey{%skey: {src: %s, dst: %s}%s}", typ, net.HardwareAddr(k.EthSrc[:]), net.HardwareAddr(k.EthDst[:]), mask)
+func writeMaskedBytes(buf *bytes.Buffer, sep *string, n string, k, m []byte,
+	s func([]byte) string) {
+	if !AllBytes(m, 0) {
+		fmt.Fprintf(buf, "%s%s: %s", *sep, n, s(k))
+		if !AllBytes(m, 0xff) {
+			fmt.Fprintf(buf, "&%s", s(m))
+		}
+
+		*sep = ", "
+	}
 }
 
 func (k EthernetFlowKey) Key() OvsKeyEthernet {
@@ -500,6 +517,49 @@ func NewTunnelFlowKey(key TunnelAttrs, mask TunnelAttrs) TunnelFlowKey {
 	return TunnelFlowKey{key: key, mask: mask}
 }
 
+func (fk TunnelFlowKey) String() string {
+	var buf bytes.Buffer
+	var sep string
+	fmt.Fprint(&buf, "TunnelFlowKey(")
+
+	writeMaskedBytes(&buf, &sep, "id", fk.key.TunnelId[:],
+		fk.mask.TunnelId[:], hex.EncodeToString)
+	writeMaskedBytes(&buf, &sep, "ipv4src", fk.key.Ipv4Src[:],
+		fk.mask.Ipv4Src[:], ipv4ToString)
+	writeMaskedBytes(&buf, &sep, "ipv4dst", fk.key.Ipv4Dst[:],
+		fk.mask.Ipv4Dst[:], ipv4ToString)
+
+	b := func(n string, k, m byte) {
+		if m != 0 {
+			fmt.Fprintf(&buf, "%s%s: %d", sep, n, k)
+			if m != 0xff {
+				fmt.Fprintf(&buf, "&%d", m)
+			}
+			sep = ", "
+		}
+	}
+
+	b("tos", fk.key.Tos, fk.mask.Tos)
+	b("ttl", fk.key.Ttl, fk.mask.Ttl)
+
+	if fk.mask.Df {
+		fmt.Fprintf(&buf, "%sdf: %t", sep, fk.key.Df)
+		sep = ", "
+	}
+
+	if fk.mask.Csum {
+		fmt.Fprintf(&buf, "%ssum: %t", sep, fk.key.Csum)
+		sep = ", "
+	}
+
+	fmt.Fprint(&buf, "}")
+	return buf.String()
+}
+
+func ipv4ToString(ip []byte) string {
+	return net.IP(ip).To4().String()
+}
+
 func (fk TunnelFlowKey) Key() TunnelAttrs {
 	return fk.key
 }
@@ -662,6 +722,53 @@ func parseOutputAction(typ uint16, data []byte) (Action, error) {
 type SetTunnelAction struct {
 	TunnelAttrs
 	Present TunnelAttrsPresence
+}
+
+func (ta SetTunnelAction) String() string {
+	var buf bytes.Buffer
+	var sep string
+	fmt.Fprint(&buf, "SetTunnelAction{")
+
+	if ta.Present.TunnelId {
+		fmt.Fprintf(&buf, "%sid: %s", sep,
+			hex.EncodeToString(ta.TunnelId[:]))
+		sep = ", "
+	}
+
+	if ta.Present.Ipv4Src {
+		fmt.Fprintf(&buf, "%sipv4src: %s", sep,
+			ipv4ToString(ta.Ipv4Src[:]))
+		sep = ", "
+	}
+
+	if ta.Present.Ipv4Dst {
+		fmt.Fprintf(&buf, "%sipv4dst: %s", sep,
+			ipv4ToString(ta.Ipv4Dst[:]))
+		sep = ", "
+	}
+
+	if ta.Present.Tos {
+		fmt.Fprintf(&buf, "%stos: %d", sep, ta.Tos)
+		sep = ", "
+	}
+
+	if ta.Present.Ttl {
+		fmt.Fprintf(&buf, "%sttl: %d", sep, ta.Ttl)
+		sep = ", "
+	}
+
+	if ta.Present.Df {
+		fmt.Fprintf(&buf, "%sdf: %t", sep, ta.Df)
+		sep = ", "
+	}
+
+	if ta.Present.Csum {
+		fmt.Fprintf(&buf, "%scsum: %t", sep, ta.Csum)
+		sep = ", "
+	}
+
+	fmt.Fprint(&buf, "}")
+	return buf.String()
 }
 
 func (SetTunnelAction) typeId() uint16 {
