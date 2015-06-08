@@ -317,11 +317,45 @@ func (key EthernetFlowKey) Ignored() bool {
 	return false
 }
 
-func NewEthernetFlowKey(key OvsKeyEthernet, mask OvsKeyEthernet) FlowKey {
-	fk := NewBlobFlowKey(OVS_KEY_ATTR_ETHERNET, SizeofOvsKeyEthernet)
-	*ovsKeyEthernetAt(fk.key(), 0) = key
-	*ovsKeyEthernetAt(fk.mask(), 0) = mask
-	return EthernetFlowKey{fk}
+func NewEthernetFlowKey() EthernetFlowKey {
+	return EthernetFlowKey{NewBlobFlowKey(OVS_KEY_ATTR_ETHERNET,
+		SizeofOvsKeyEthernet)}
+}
+
+func (fk *EthernetFlowKey) key() *OvsKeyEthernet {
+	return ovsKeyEthernetAt(fk.BlobFlowKey.key(), 0)
+}
+
+func (fk *EthernetFlowKey) mask() *OvsKeyEthernet {
+	return ovsKeyEthernetAt(fk.BlobFlowKey.mask(), 0)
+}
+
+func (fk EthernetFlowKey) Key() OvsKeyEthernet {
+	return *fk.key()
+}
+
+func (fk EthernetFlowKey) Mask() OvsKeyEthernet {
+	return *fk.mask()
+}
+
+func (fk *EthernetFlowKey) SetMaskedEthSrc(addr [ETH_ALEN]byte,
+	mask [ETH_ALEN]byte) {
+	fk.key().EthSrc = addr
+	fk.mask().EthSrc = mask
+}
+
+func (fk *EthernetFlowKey) SetEthSrc(addr [ETH_ALEN]byte) {
+	fk.SetMaskedEthSrc(addr, [...]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
+}
+
+func (fk *EthernetFlowKey) SetMaskedEthDst(addr [ETH_ALEN]byte,
+	mask [ETH_ALEN]byte) {
+	fk.key().EthDst = addr
+	fk.mask().EthDst = mask
+}
+
+func (fk *EthernetFlowKey) SetEthDst(addr [ETH_ALEN]byte) {
+	fk.SetMaskedEthDst(addr, [...]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
 }
 
 func (fk EthernetFlowKey) String() string {
@@ -353,14 +387,6 @@ func writeMaskedBytes(buf *bytes.Buffer, sep *string, n string, k, m []byte,
 
 		*sep = ", "
 	}
-}
-
-func (k EthernetFlowKey) Key() OvsKeyEthernet {
-	return *ovsKeyEthernetAt(k.key(), 0)
-}
-
-func (k EthernetFlowKey) Mask() OvsKeyEthernet {
-	return *ovsKeyEthernetAt(k.mask(), 0)
 }
 
 var ethernetFlowKeyParser = blobFlowKeyParser(SizeofOvsKeyEthernet,
@@ -513,10 +539,6 @@ type TunnelFlowKey struct {
 	mask TunnelAttrs
 }
 
-func NewTunnelFlowKey(key TunnelAttrs, mask TunnelAttrs) TunnelFlowKey {
-	return TunnelFlowKey{key: key, mask: mask}
-}
-
 func (fk TunnelFlowKey) String() string {
 	var buf bytes.Buffer
 	var sep string
@@ -572,6 +594,44 @@ func (TunnelFlowKey) typeId() uint16 {
 	return OVS_KEY_ATTR_TUNNEL
 }
 
+func (fk *TunnelFlowKey) SetTunnelId(id [8]byte) {
+	fk.key.TunnelId = id
+	fk.mask.TunnelId = [...]byte{
+		0xff, 0xff, 0xff, 0xff,
+		0xff, 0xff, 0xff, 0xff,
+	}
+}
+
+func (fk *TunnelFlowKey) SetIpv4Src(addr [4]byte) {
+	fk.key.Ipv4Src = addr
+	fk.mask.Ipv4Src = [...]byte{0xff, 0xff, 0xff, 0xff}
+}
+
+func (fk *TunnelFlowKey) SetIpv4Dst(addr [4]byte) {
+	fk.key.Ipv4Dst = addr
+	fk.mask.Ipv4Dst = [...]byte{0xff, 0xff, 0xff, 0xff}
+}
+
+func (fk *TunnelFlowKey) SetTos(tos uint8) {
+	fk.key.Tos = tos
+	fk.mask.Tos = 0xff
+}
+
+func (fk *TunnelFlowKey) SetTtl(ttl uint8) {
+	fk.key.Ttl = ttl
+	fk.mask.Ttl = 0xff
+}
+
+func (fk *TunnelFlowKey) SetDf(df bool) {
+	fk.key.Df = df
+	fk.mask.Df = true
+}
+
+func (fk *TunnelFlowKey) SetCsum(csum bool) {
+	fk.key.Csum = csum
+	fk.mask.Csum = true
+}
+
 func (key TunnelFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
 	msg.PutNestedAttrs(OVS_KEY_ATTR_TUNNEL, func() {
 		key.key.toNlAttrs(msg, key.mask.present())
@@ -599,7 +659,7 @@ func (key TunnelFlowKey) Ignored() bool {
 		AllBytes(m.Ipv4Dst[:], 0) &&
 		m.Tos == 0 &&
 		m.Ttl == 0 &&
-		!m.Df && !m.Csum
+		!m.Csum && !m.Csum
 }
 
 func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
@@ -903,8 +963,7 @@ func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
 	// completely wildcarded.
 	var defaultEthernetFlowKey FlowKey
 	if f.FlowKeys[OVS_KEY_ATTR_ETHERNET] == nil {
-		defaultEthernetFlowKey = NewEthernetFlowKey(OvsKeyEthernet{},
-			OvsKeyEthernet{})
+		defaultEthernetFlowKey = NewEthernetFlowKey()
 	}
 
 	msg.PutNestedAttrs(OVS_FLOW_ATTR_KEY, func() {

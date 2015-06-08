@@ -647,64 +647,63 @@ func setBytes(s []byte, x byte) {
 	}
 }
 
-func parseTunnelFlags(tf *tunnelFlags) (fk odp.TunnelFlowKey, err error) {
-	var k, m odp.TunnelAttrs
+func parseTunnelFlags(tf *tunnelFlags) (odp.TunnelFlowKey, error) {
+	var fk odp.TunnelFlowKey
 
 	if tf.id != "" {
-		k.TunnelId, err = parseTunnelId(tf.id)
+		tunnelId, err := parseTunnelId(tf.id)
 		if err != nil {
-			return
+			return fk, err
 		}
 
-		setBytes(m.TunnelId[:], 0xff)
+		fk.SetTunnelId(tunnelId)
 	}
 
 	if tf.ipv4Src != "" {
-		k.Ipv4Src, err = parseIpv4(tf.ipv4Src)
+		addr, err := parseIpv4(tf.ipv4Src)
 		if err != nil {
-			return
+			return fk, err
 		}
 
-		setBytes(m.Ipv4Src[:], 0xff)
+		fk.SetIpv4Src(addr)
 	}
 
 	if tf.ipv4Dst != "" {
-		k.Ipv4Dst, err = parseIpv4(tf.ipv4Dst)
+		addr, err := parseIpv4(tf.ipv4Dst)
 		if err != nil {
-			return
+			return fk, err
 		}
 
-		setBytes(m.Ipv4Dst[:], 0xff)
+		fk.SetIpv4Dst(addr)
 	}
 
 	if tf.tos >= 0 {
-		k.Tos = uint8(tf.tos)
-		m.Tos = 0xff
+		fk.SetTos(uint8(tf.tos))
 	}
 
 	if tf.ttl >= 0 {
-		k.Ttl = uint8(tf.ttl)
-		m.Ttl = 0xff
+		fk.SetTtl(uint8(tf.ttl))
 	}
 
 	if tf.df != "" {
-		m.Df = true
-		k.Df, err = parseBool(tf.df)
+		df, err := parseBool(tf.df)
 		if err != nil {
-			return
+			return fk, err
 		}
+
+		fk.SetDf(df)
 	}
 
 	if tf.csum != "" {
-		m.Csum = true
-		k.Csum, err = parseBool(tf.csum)
+		csum, err := parseBool(tf.csum)
 		if err != nil {
-			return
+			return fk, err
 		}
+
+		fk.SetCsum(csum)
 	}
 
-	fk = odp.NewTunnelFlowKey(k, m)
-	return
+	return fk, nil
 }
 
 func parseSetTunnelFlags(tf *tunnelFlags) (*odp.SetTunnelAction, error) {
@@ -831,21 +830,25 @@ func flagsToFlowSpec(f Flags, dpif *odp.Dpif) (dp odp.DatapathHandle, flow odp.F
 	return *dpp, flow, true
 }
 
-func handleEthernetFlowKeyOptions(flow odp.FlowSpec, src string, dst string) (err error) {
-	var k odp.OvsKeyEthernet
-	var m odp.OvsKeyEthernet
-
-	k.EthSrc, m.EthSrc, err = handleEthernetAddrOption(src)
-	if err != nil {
-		return
-	}
-	k.EthDst, m.EthDst, err = handleEthernetAddrOption(dst)
-	if err != nil {
-		return
+func handleEthernetFlowKeyOptions(flow odp.FlowSpec, src string, dst string) error {
+	var err error
+	takeErr := func(key [ETH_ALEN]byte, mask [ETH_ALEN]byte,
+		e error) ([ETH_ALEN]byte, [ETH_ALEN]byte) {
+		err = e
+		return key, mask
 	}
 
-	flow.AddKey(odp.NewEthernetFlowKey(k, m))
-	return
+	fk := odp.NewEthernetFlowKey()
+
+	fk.SetMaskedEthSrc(takeErr(handleEthernetAddrOption(src)))
+	fk.SetMaskedEthDst(takeErr(handleEthernetAddrOption(dst)))
+
+	if err != nil {
+		return err
+	}
+
+	flow.AddKey(fk)
+	return nil
 }
 
 const ETH_ALEN = odp.ETH_ALEN
@@ -1075,27 +1078,27 @@ func printTunnelOptions(fk odp.TunnelFlowKey, prefix string) {
 }
 
 func printSetTunnelOptions(a odp.SetTunnelAction) {
-	presentToByte := func(p bool) byte {
-		if p {
-			return 0xff
-		} else {
-			return 0
-		}
+	var fk odp.TunnelFlowKey
+	if a.Present.TunnelId {
+		fk.SetTunnelId(a.TunnelId)
 	}
-
-	fillBytes := func(bs []byte, v byte) {
-		for i := range bs {
-			bs[i] = v
-		}
+	if a.Present.Ipv4Src {
+		fk.SetIpv4Src(a.Ipv4Src)
 	}
-
-	var m odp.TunnelAttrs
-	fillBytes(m.TunnelId[:], presentToByte(a.Present.TunnelId))
-	fillBytes(m.Ipv4Src[:], presentToByte(a.Present.Ipv4Src))
-	fillBytes(m.Ipv4Dst[:], presentToByte(a.Present.Ipv4Dst))
-	m.Tos = presentToByte(a.Present.Tos)
-	m.Ttl = presentToByte(a.Present.Ttl)
-	m.Df = a.Present.Df
-	m.Csum = a.Present.Csum
-	printTunnelOptions(odp.NewTunnelFlowKey(a.TunnelAttrs, m), "set-tunnel-")
+	if a.Present.Ipv4Dst {
+		fk.SetIpv4Dst(a.Ipv4Dst)
+	}
+	if a.Present.Tos {
+		fk.SetTos(a.Tos)
+	}
+	if a.Present.Ttl {
+		fk.SetTtl(a.Ttl)
+	}
+	if a.Present.Df {
+		fk.SetDf(a.Df)
+	}
+	if a.Present.Csum {
+		fk.SetCsum(a.Csum)
+	}
+	printTunnelOptions(fk, "set-tunnel-")
 }
