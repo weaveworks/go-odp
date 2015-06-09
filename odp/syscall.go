@@ -209,3 +209,8 @@ const ( // ovs_packet_attr
 	OVS_PACKET_ATTR_ACTIONS  = 3
 	OVS_PACKET_ATTR_USERDATA = 4
 )
+
+type ifreqIfindex struct {
+	name    [syscall.IFNAMSIZ]byte
+	ifindex int32
+}
