@@ -292,7 +292,7 @@ func parseInPortFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
 }
 
 func NewInPortFlowKey(vport VportID) FlowKey {
-	fk := NewBlobFlowKey(OVS_KEY_ATTR_IN_PORT, 4)
+	fk := InPortFlowKey{NewBlobFlowKey(OVS_KEY_ATTR_IN_PORT, 4)}
 	*uint32At(fk.key(), 0) = uint32(vport)
 	return fk
 }
