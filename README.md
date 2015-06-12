@@ -65,7 +65,7 @@ discussed below.
 
 Set `GOPATH`, then:
 
-    go get github.com/dpw/go-odp/tool/odp
+    go get github.com/weaveworks/go-odp/tool/odp
 
 The command line tool will end up at `$GOPATH/bin/odp`
 
