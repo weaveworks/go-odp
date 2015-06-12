@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"github.com/dpw/go-odp/odp"
 	"io"
 	"net"
 	"os"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"time"
 	"unsafe"
+
+	"github.com/weaveworks/go-odp/odp"
 )
 
 func printErr(f string, a ...interface{}) bool {
