@@ -1,7 +1,5 @@
 tool: elaborate error messages
 
-tool: usage output
-
 TODOs in dpif.go
 
 Caching/joining for vport names in printFlow

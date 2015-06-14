@@ -23,6 +23,7 @@ func printErr(f string, a ...interface{}) bool {
 }
 
 type commandDispatch interface {
+	usage(path []string)
 	run(args []string, pos int) bool
 }
 
@@ -31,6 +32,14 @@ type subcommands map[string]commandDispatch
 func (cmds subcommands) run(args []string, pos int) bool {
 	if pos >= len(args) {
 		return printErr("Subcommand required by \"%s\".  Try \"%s help\"", strings.Join(args[:pos], " "), args[0])
+	}
+
+	if args[pos] == "help" {
+		fmt.Fprintln(os.Stderr, "Usage:")
+		path := make([]string, pos)
+		copy(path, args)
+		cmds.usage(path)
+		return false
 	}
 
 	var match commandDispatch
@@ -59,6 +68,12 @@ func (cmds subcommands) run(args []string, pos int) bool {
 	}
 
 	return match.run(args, pos+1)
+}
+
+func (cmds subcommands) usage(path []string) {
+	for name, cd := range cmds {
+		cd.usage(append(path, name))
+	}
 }
 
 type Flags struct {
@@ -98,12 +113,22 @@ func findFirstOpt(args []string) int {
 }
 
 type command struct {
-	cmd func(Flags) bool
+	args  string
+	descr string
+	cmd   func(Flags) bool
 }
 
 func (cmd command) run(args []string, pos int) bool {
 	f := flag.NewFlagSet(strings.Join(args[:pos], " "), flag.ExitOnError)
 	return cmd.cmd(Flags{f, args[pos:]})
+}
+
+func (cmd command) usage(path []string) {
+	if cmd.args != "" {
+		path = append(path, cmd.args)
+	}
+	fmt.Fprintf(os.Stderr, "%-45s %s\n", strings.Join(path, " "),
+		cmd.descr)
 }
 
 type possibleSubcommands struct {
@@ -119,33 +144,77 @@ func (cmds possibleSubcommands) run(args []string, pos int) bool {
 	return cmds.subcommands.run(args, pos)
 }
 
+func (cmds possibleSubcommands) usage(path []string) {
+	cmds.command.usage(path)
+	cmds.subcommands.usage(path)
+}
+
 var commands = subcommands{
 	"datapath": possibleSubcommands{
-		command{listDatapaths},
+		command{"", "List datapaths", listDatapaths},
 		subcommands{
-			"add":    command{addDatapath},
-			"delete": command{deleteDatapath},
-			"list":   command{listDatapaths},
-			"listen": command{listenOnDatapath},
+			"add": command{
+				"<datapath>", "Add datapath",
+				addDatapath,
+			},
+			"delete": command{
+				"<datapath>", "Delete datapath",
+				deleteDatapath,
+			},
+			"list": command{"", "List datapaths", listDatapaths},
+			"listen": command{
+				"<datapath>", "Listen to misses on datapath",
+				listenOnDatapath,
+			},
 		},
 	},
 	"vport": possibleSubcommands{
-		command{listVports},
+		command{"", "List vports", listVports},
 		subcommands{
 			"add": subcommands{
-				"netdev":   command{addNetdevVport},
-				"internal": command{addInternalVport},
-				"vxlan":    command{addVxlanVport},
+				"netdev": command{
+					"<datapath> <netdev>",
+					"Add netdev vport",
+					addNetdevVport,
+				},
+				"internal": command{
+					"<datapath> <vport>",
+					"Add internal vport",
+					addInternalVport,
+				},
+				"vxlan": command{
+					"<datapath> <vport>",
+					"Add vxlan vport",
+					addVxlanVport,
+				},
 			},
-			"delete": command{deleteVport},
-			"list":   command{listVports},
-			"listen": command{listenForVports},
+			"delete": command{
+				"<vport>", "Delete vport",
+				deleteVport,
+			},
+			"list": command{
+				"[<datapath>]", "List vports",
+				listVports,
+			},
+			"listen": command{
+				"", "Listen for vport changes",
+				listenForVports,
+			},
 		},
 	},
 	"flow": subcommands{
-		"add":    command{addFlow},
-		"delete": command{deleteFlow},
-		"list":   command{listFlows},
+		"add": command{
+			"<datapath> <options>...", "Add flow",
+			addFlow,
+		},
+		"delete": command{
+			"<datapath> <options>...", "Delete flow",
+			deleteFlow,
+		},
+		"list": command{
+			"[<datapath>]", "List flows",
+			listFlows,
+		},
 	},
 }
 
