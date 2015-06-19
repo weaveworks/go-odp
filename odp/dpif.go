@@ -26,6 +26,19 @@ type Dpif struct {
 	families [FAMILY_COUNT]GenlFamily
 }
 
+type familyUnavailableError struct {
+	family string
+}
+
+func (fue familyUnavailableError) Error() string {
+	return fmt.Sprintf("Generic netlink family '%s' unavailable; the Open vSwitch kernel module is probably not loaded, try 'modprobe openvswitch'", fue.family)
+}
+
+func IsKernelLacksODPError(err error) bool {
+	_, ok := err.(familyUnavailableError)
+	return ok
+}
+
 func lookupFamily(sock *NetlinkSocket, name string) (GenlFamily, error) {
 	family, err := sock.LookupGenlFamily(name)
 	if err == nil {
@@ -42,7 +55,7 @@ func lookupFamily(sock *NetlinkSocket, name string) (GenlFamily, error) {
 		}
 
 		if err == NetlinkError(syscall.ENOENT) {
-			err = fmt.Errorf("Generic netlink family '%s' unavailable; the Open vSwitch kernel module is probably not loaded, try 'modprobe openvswitch'", name)
+			err = familyUnavailableError{name}
 		}
 	}
 
