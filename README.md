@@ -140,7 +140,7 @@ List the flows within a datapath with:
 
     $GOPATH/bin/odp flow list <datapath name>
 
-Each line describes a flows.  The format corresponds to how flows are
+Each line describes a flow.  The format corresponds to how flows are
 specified to the `flow add` command.
 
 The general syntax for creating a flow is:
@@ -216,7 +216,7 @@ The destination UDP port for the VXLAN packets is the port number
 setting for the outgoing VXLAN vport (the same port number that is
 used for binding).  The source UDP port for the VXLAN packets cannot
 be configured; it is based on a hash of inner packet fields, as
-recommended in RFC7348](https://tools.ietf.org/html/rfc7348).
+recommended in [RFC7348](https://tools.ietf.org/html/rfc7348).
 
 ### Misses
 
