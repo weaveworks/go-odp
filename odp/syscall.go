@@ -174,6 +174,10 @@ const ( // ovs_tunnel_key_attr
 	OVS_TUNNEL_KEY_ATTR_TTL           = 4
 	OVS_TUNNEL_KEY_ATTR_DONT_FRAGMENT = 5
 	OVS_TUNNEL_KEY_ATTR_CSUM          = 6
+	OVS_TUNNEL_KEY_ATTR_OAM           = 7
+	OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS   = 8
+	OVS_TUNNEL_KEY_ATTR_TP_SRC        = 9
+	OVS_TUNNEL_KEY_ATTR_TP_DST        = 10
 )
 
 const ETH_ALEN = 6

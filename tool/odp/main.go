@@ -212,7 +212,7 @@ var commands = subcommands{
 			deleteFlow,
 		},
 		"list": command{
-			"[<datapath>]", "List flows",
+			"<datapath>", "List flows",
 			listFlows,
 		},
 	},
@@ -671,6 +671,8 @@ type tunnelFlags struct {
 	ttl     int
 	df      string
 	csum    string
+	tpsrc   int
+	tpdst   int
 }
 
 func addTunnelFlags(f Flags, tf *tunnelFlags, prefix string, descrPrefix string) {
@@ -684,6 +686,9 @@ func addTunnelFlags(f Flags, tf *tunnelFlags, prefix string, descrPrefix string)
 	// StringVar
 	f.StringVar(&tf.df, prefix+"df", "", descrPrefix+"DF")
 	f.StringVar(&tf.csum, prefix+"csum", "", descrPrefix+"checksum")
+
+	f.IntVar(&tf.tpsrc, prefix+"tp-src", -1, descrPrefix+"source port")
+	f.IntVar(&tf.tpdst, prefix+"tp-dst", -1, descrPrefix+"destination port")
 }
 
 func makeBoolStrings(trueStrs, falseStrs string) map[string]bool {
@@ -773,6 +778,14 @@ func parseTunnelFlags(tf *tunnelFlags) (odp.TunnelFlowKey, error) {
 		fk.SetCsum(csum)
 	}
 
+	if tf.tpsrc >= 0 {
+		fk.SetTpSrc(uint16(tf.tpsrc))
+	}
+
+	if tf.tpdst >= 0 {
+		fk.SetTpDst(uint16(tf.tpdst))
+	}
+
 	return fk, nil
 }
 
@@ -808,6 +821,8 @@ func parseSetTunnelFlags(tf *tunnelFlags) (*odp.SetTunnelAction, error) {
 	a.Present.Ttl = present(m.Ttl == 0xff, m.Ttl == 0)
 	a.Present.Df = m.Df
 	a.Present.Csum = m.Csum
+	a.Present.TpSrc = present(m.TpSrc == 0xffff, m.TpSrc == 0)
+	a.Present.TpDst = present(m.TpDst == 0xffff, m.TpDst == 0)
 
 	if foundMask {
 		return nil, fmt.Errorf("--set-tunnel option includes a mask")
@@ -815,7 +830,8 @@ func parseSetTunnelFlags(tf *tunnelFlags) (*odp.SetTunnelAction, error) {
 
 	if a.Present.TunnelId || a.Present.Ipv4Src || a.Present.Ipv4Dst ||
 		a.Present.Tos || a.Present.Ttl ||
-		a.Present.Df || a.Present.Csum {
+		a.Present.Df || a.Present.Csum ||
+		a.Present.TpSrc || a.Present.TpDst {
 		return &a, nil
 	} else {
 		return nil, nil
@@ -1118,9 +1134,9 @@ func printBytesOption(opt string, k []byte, m []byte, f func([]byte) string) {
 	}
 }
 
-func printByteOption(opt string, k byte, m byte) {
+func printIntOption(opt string, k uint, m uint, allbits uint) {
 	if m != 0 {
-		if m == 0xff {
+		if m == allbits {
 			fmt.Printf(" --%s=%d", opt, k)
 		} else {
 			fmt.Printf(" --%s=\"%d&%d\"", opt, k, m)
@@ -1135,8 +1151,8 @@ func printTunnelOptions(fk odp.TunnelFlowKey, prefix string) {
 	printBytesOption(prefix+"id", k.TunnelId[:], m.TunnelId[:], hex.EncodeToString)
 	printBytesOption(prefix+"ipv4-src", k.Ipv4Src[:], m.Ipv4Src[:], ipv4ToString)
 	printBytesOption(prefix+"ipv4-dst", k.Ipv4Dst[:], m.Ipv4Dst[:], ipv4ToString)
-	printByteOption(prefix+"tos", k.Tos, m.Tos)
-	printByteOption(prefix+"ttl", k.Ttl, m.Ttl)
+	printIntOption(prefix+"tos", uint(k.Tos), uint(m.Tos), 0xff)
+	printIntOption(prefix+"ttl", uint(k.Ttl), uint(m.Ttl), 0xff)
 
 	if m.Df {
 		fmt.Printf(" --%sdf=%t", prefix, k.Df)
@@ -1145,6 +1161,9 @@ func printTunnelOptions(fk odp.TunnelFlowKey, prefix string) {
 	if m.Csum {
 		fmt.Printf(" --%scsum=%t", prefix, k.Csum)
 	}
+
+	printIntOption(prefix+"tp-src", uint(k.TpSrc), uint(m.TpSrc), 0xffff)
+	printIntOption(prefix+"tp-dst", uint(k.TpDst), uint(m.TpDst), 0xffff)
 }
 
 func printSetTunnelOptions(a odp.SetTunnelAction) {
@@ -1169,6 +1188,12 @@ func printSetTunnelOptions(a odp.SetTunnelAction) {
 	}
 	if a.Present.Csum {
 		fk.SetCsum(a.Csum)
+	}
+	if a.Present.TpSrc {
+		fk.SetTpSrc(a.TpSrc)
+	}
+	if a.Present.TpDst {
+		fk.SetTpDst(a.TpDst)
 	}
 	printTunnelOptions(fk, "set-tunnel-")
 }

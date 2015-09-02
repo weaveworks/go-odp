@@ -370,17 +370,26 @@ func (attrs Attrs) GetOptionalUint8(typ uint16) (uint8, bool, error) {
 	return val[0], true, nil
 }
 
-func (attrs Attrs) GetUint16(typ uint16) (uint16, error) {
-	val, err := attrs.Get(typ, false)
-	if err != nil {
-		return 0, err
+func (attrs Attrs) getUint16(typ uint16, optional bool) (uint16, bool, error) {
+	val, err := attrs.Get(typ, optional)
+	if err != nil || val == nil {
+		return 0, false, err
 	}
 
 	if len(val) != 2 {
-		return 0, fmt.Errorf("uint16 attribute %d has wrong length (%d bytes)", typ, len(val))
+		return 0, false, fmt.Errorf("uint16 attribute %d has wrong length (%d bytes)", typ, len(val))
 	}
 
-	return *uint16At(val, 0), nil
+	return *uint16At(val, 0), true, nil
+}
+
+func (attrs Attrs) GetUint16(typ uint16) (uint16, error) {
+	res, _, err := attrs.getUint16(typ, false)
+	return res, err
+}
+
+func (attrs Attrs) GetOptionalUint16(typ uint16) (uint16, bool, error) {
+	return attrs.getUint16(typ, true)
 }
 
 func (attrs Attrs) GetUint32(typ uint16) (uint32, error) {

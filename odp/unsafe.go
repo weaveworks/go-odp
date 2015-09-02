@@ -67,3 +67,12 @@ func ovsKeyEthernetAt(data []byte, pos int) *OvsKeyEthernet {
 func ovsFlowStatsAt(data []byte, pos int) *OvsFlowStats {
 	return (*OvsFlowStats)(unsafe.Pointer(&data[pos]))
 }
+
+func uint16FromBE(n uint16) uint16 {
+	a := (*[2]byte)(unsafe.Pointer(&n))
+	return uint16(a[0])<<8 + uint16(a[1])
+}
+
+func uint16ToBE(n uint16) uint16 {
+	return uint16FromBE(n)
+}

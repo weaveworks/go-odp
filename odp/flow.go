@@ -371,13 +371,13 @@ func (fk EthernetFlowKey) String() string {
 	k := fk.Key()
 	m := fk.Mask()
 	ha := func(s []byte) string { return net.HardwareAddr(s).String() }
-	writeMaskedBytes(&buf, &sep, "src", k.EthSrc[:], m.EthSrc[:], ha)
-	writeMaskedBytes(&buf, &sep, "dst", k.EthDst[:], m.EthDst[:], ha)
+	printMaskedBytes(&buf, &sep, "src", k.EthSrc[:], m.EthSrc[:], ha)
+	printMaskedBytes(&buf, &sep, "dst", k.EthDst[:], m.EthDst[:], ha)
 	fmt.Fprint(&buf, "}")
 	return buf.String()
 }
 
-func writeMaskedBytes(buf *bytes.Buffer, sep *string, n string, k, m []byte,
+func printMaskedBytes(buf *bytes.Buffer, sep *string, n string, k, m []byte,
 	s func([]byte) string) {
 	if !AllBytes(m, 0) {
 		fmt.Fprintf(buf, "%s%s: %s", *sep, n, s(k))
@@ -403,6 +403,8 @@ type TunnelAttrs struct {
 	Ttl      uint8
 	Df       bool
 	Csum     bool
+	TpSrc    uint16
+	TpDst    uint16
 }
 
 type TunnelAttrsPresence struct {
@@ -413,6 +415,8 @@ type TunnelAttrsPresence struct {
 	Ttl      bool
 	Df       bool
 	Csum     bool
+	TpSrc    bool
+	TpDst    bool
 }
 
 // Extract presence information from a TunnelAttrs mask
@@ -428,6 +432,8 @@ func (ta TunnelAttrs) present() TunnelAttrsPresence {
 		Ttl:      true,
 		Df:       ta.Df,
 		Csum:     ta.Csum,
+		TpSrc:    ta.TpSrc != 0,
+		TpDst:    ta.TpDst != 0,
 	}
 }
 
@@ -458,6 +464,15 @@ func (tap TunnelAttrsPresence) mask() (res TunnelAttrs) {
 
 	res.Df = tap.Df
 	res.Csum = tap.Csum
+
+	if tap.TpSrc {
+		res.TpSrc = 0xffff
+	}
+
+	if tap.TpDst {
+		res.TpDst = 0xffff
+	}
+
 	return
 }
 
@@ -488,6 +503,16 @@ func (ta TunnelAttrs) toNlAttrs(msg *NlMsgBuilder, present TunnelAttrsPresence) 
 
 	if present.Csum && ta.Csum {
 		msg.PutEmptyAttr(OVS_TUNNEL_KEY_ATTR_CSUM)
+	}
+
+	if present.TpSrc {
+		msg.PutUint16Attr(OVS_TUNNEL_KEY_ATTR_TP_SRC,
+			uint16ToBE(ta.TpSrc))
+	}
+
+	if present.TpDst {
+		msg.PutUint16Attr(OVS_TUNNEL_KEY_ATTR_TP_DST,
+			uint16ToBE(ta.TpDst))
 	}
 }
 
@@ -531,6 +556,18 @@ func parseTunnelAttrs(data []byte) (ta TunnelAttrs, present TunnelAttrsPresence,
 		return
 	}
 
+	ta.TpSrc, present.TpSrc, err = attrs.GetOptionalUint16(OVS_TUNNEL_KEY_ATTR_TP_SRC)
+	if err != nil {
+		return
+	}
+	ta.TpSrc = uint16FromBE(ta.TpSrc)
+
+	ta.TpDst, present.TpDst, err = attrs.GetOptionalUint16(OVS_TUNNEL_KEY_ATTR_TP_DST)
+	if err != nil {
+		return
+	}
+	ta.TpDst = uint16FromBE(ta.TpDst)
+
 	return
 }
 
@@ -544,25 +581,25 @@ func (fk TunnelFlowKey) String() string {
 	var sep string
 	fmt.Fprint(&buf, "TunnelFlowKey(")
 
-	writeMaskedBytes(&buf, &sep, "id", fk.key.TunnelId[:],
+	printMaskedBytes(&buf, &sep, "id", fk.key.TunnelId[:],
 		fk.mask.TunnelId[:], hex.EncodeToString)
-	writeMaskedBytes(&buf, &sep, "ipv4src", fk.key.Ipv4Src[:],
+	printMaskedBytes(&buf, &sep, "ipv4src", fk.key.Ipv4Src[:],
 		fk.mask.Ipv4Src[:], ipv4ToString)
-	writeMaskedBytes(&buf, &sep, "ipv4dst", fk.key.Ipv4Dst[:],
+	printMaskedBytes(&buf, &sep, "ipv4dst", fk.key.Ipv4Dst[:],
 		fk.mask.Ipv4Dst[:], ipv4ToString)
 
-	b := func(n string, k, m byte) {
+	printByte := func(n string, k, m byte) {
 		if m != 0 {
 			fmt.Fprintf(&buf, "%s%s: %d", sep, n, k)
 			if m != 0xff {
-				fmt.Fprintf(&buf, "&%d", m)
+				fmt.Fprintf(&buf, "&%x", m)
 			}
 			sep = ", "
 		}
 	}
 
-	b("tos", fk.key.Tos, fk.mask.Tos)
-	b("ttl", fk.key.Ttl, fk.mask.Ttl)
+	printByte("tos", fk.key.Tos, fk.mask.Tos)
+	printByte("ttl", fk.key.Ttl, fk.mask.Ttl)
 
 	if fk.mask.Df {
 		fmt.Fprintf(&buf, "%sdf: %t", sep, fk.key.Df)
@@ -573,6 +610,19 @@ func (fk TunnelFlowKey) String() string {
 		fmt.Fprintf(&buf, "%ssum: %t", sep, fk.key.Csum)
 		sep = ", "
 	}
+
+	printUint16 := func(n string, k, m uint16) {
+		if m != 0 {
+			fmt.Fprintf(&buf, "%s%s: %d", sep, n, k)
+			if m != 0xffff {
+				fmt.Fprintf(&buf, "&%x", m)
+			}
+			sep = ", "
+		}
+	}
+
+	printUint16("tpsrc", fk.key.TpSrc, fk.mask.TpSrc)
+	printUint16("tpdst", fk.key.TpDst, fk.mask.TpDst)
 
 	fmt.Fprint(&buf, "}")
 	return buf.String()
@@ -632,6 +682,16 @@ func (fk *TunnelFlowKey) SetCsum(csum bool) {
 	fk.mask.Csum = true
 }
 
+func (fk *TunnelFlowKey) SetTpSrc(port uint16) {
+	fk.key.TpSrc = port
+	fk.mask.TpSrc = 0xffff
+}
+
+func (fk *TunnelFlowKey) SetTpDst(port uint16) {
+	fk.key.TpDst = port
+	fk.mask.TpDst = 0xffff
+}
+
 func (key TunnelFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
 	msg.PutNestedAttrs(OVS_KEY_ATTR_TUNNEL, func() {
 		key.key.toNlAttrs(msg, key.mask.present())
@@ -659,7 +719,8 @@ func (key TunnelFlowKey) Ignored() bool {
 		AllBytes(m.Ipv4Dst[:], 0) &&
 		m.Tos == 0 &&
 		m.Ttl == 0 &&
-		!m.Csum && !m.Csum
+		!m.Csum && !m.Csum &&
+		m.TpSrc == 0 && m.TpDst == 0
 }
 
 func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
@@ -827,6 +888,16 @@ func (ta SetTunnelAction) String() string {
 		sep = ", "
 	}
 
+	if ta.Present.TpSrc {
+		fmt.Fprintf(&buf, "%stpsrc: %d", sep, ta.TpSrc)
+		sep = ", "
+	}
+
+	if ta.Present.TpDst {
+		fmt.Fprintf(&buf, "%stpdst: %d", sep, ta.TpDst)
+		sep = ", "
+	}
+
 	fmt.Fprint(&buf, "}")
 	return buf.String()
 }
@@ -886,6 +957,16 @@ func (a *SetTunnelAction) SetDf(df bool) {
 func (a *SetTunnelAction) SetCsum(csum bool) {
 	a.Csum = csum
 	a.Present.Csum = true
+}
+
+func (a *SetTunnelAction) SetTpSrc(port uint16) {
+	a.TpSrc = port
+	a.Present.TpSrc = true
+}
+
+func (a *SetTunnelAction) SetTpDst(port uint16) {
+	a.TpDst = port
+	a.Present.TpDst = true
 }
 
 func parseSetAction(typ uint16, data []byte) (Action, error) {
