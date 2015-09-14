@@ -19,7 +19,7 @@ func (dp DatapathHandle) ConsumeMisses(consumer MissConsumer) error {
 	portId := sock.PortId()
 	go consumeMisses(dp, sock, consumer)
 
-	// We need to set th upcall port ID on all vports.  That
+	// We need to set the upcall port ID on all vports.  That
 	// includes vports that get added while we are listening, so
 	// we need to listen for them too.
 	vportDpif, err := dp.dpif.Reopen()
