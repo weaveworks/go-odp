@@ -40,6 +40,10 @@ func int32At(data []byte, pos int) *int32 {
 	return (*int32)(unsafe.Pointer(&data[pos]))
 }
 
+func uint64At(data []byte, pos int) *uint64 {
+	return (*uint64)(unsafe.Pointer(&data[pos]))
+}
+
 func nlMsghdrAt(data []byte, pos int) *syscall.NlMsghdr {
 	return (*syscall.NlMsghdr)(unsafe.Pointer(&data[pos]))
 }

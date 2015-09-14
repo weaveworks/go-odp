@@ -405,6 +405,28 @@ func (attrs Attrs) GetUint32(typ uint16) (uint32, error) {
 	return *uint32At(val, 0), nil
 }
 
+func (attrs Attrs) getUint64(typ uint16, optional bool) (uint64, bool, error) {
+	val, err := attrs.Get(typ, optional)
+	if err != nil || val == nil {
+		return 0, false, err
+	}
+
+	if len(val) != 8 {
+		return 0, false, fmt.Errorf("uint64 attribute %d has wrong length (%d bytes)", typ, len(val))
+	}
+
+	return *uint64At(val, 0), true, nil
+}
+
+func (attrs Attrs) GetUint64(typ uint16) (uint64, error) {
+	res, _, err := attrs.getUint64(typ, false)
+	return res, err
+}
+
+func (attrs Attrs) GetOptionalUint64(typ uint16) (uint64, bool, error) {
+	return attrs.getUint64(typ, true)
+}
+
 func (attrs Attrs) GetString(typ uint16) (string, error) {
 	val, err := attrs.Get(typ, false)
 	if err != nil {

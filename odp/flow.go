@@ -52,6 +52,39 @@ func (a FlowKeys) Equals(b FlowKeys) bool {
 	return true
 }
 
+func (fks FlowKeys) toNlAttrs(msg *NlMsgBuilder) {
+	// The ethernet flow key is mandatory, even if it is
+	// completely wildcarded.
+	var defaultEthernetFlowKey FlowKey
+	if fks[OVS_KEY_ATTR_ETHERNET] == nil {
+		defaultEthernetFlowKey = NewEthernetFlowKey()
+	}
+
+	msg.PutNestedAttrs(OVS_FLOW_ATTR_KEY, func() {
+		for _, k := range fks {
+			if !k.Ignored() {
+				k.putKeyNlAttr(msg)
+			}
+		}
+
+		if defaultEthernetFlowKey != nil {
+			defaultEthernetFlowKey.putKeyNlAttr(msg)
+		}
+	})
+
+	msg.PutNestedAttrs(OVS_FLOW_ATTR_MASK, func() {
+		for _, k := range fks {
+			if !k.Ignored() {
+				k.putMaskNlAttr(msg)
+			}
+		}
+
+		if defaultEthernetFlowKey != nil {
+			defaultEthernetFlowKey.putMaskNlAttr(msg)
+		}
+	})
+}
+
 // A FlowKeyParser describes how to parse a flow key of a particular
 // type from a netlnk message
 type FlowKeyParser struct {
@@ -1040,38 +1073,7 @@ func (f *FlowSpec) AddActions(as []Action) {
 }
 
 func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
-	// The ethernet flow key is mandatory, even if it is
-	// completely wildcarded.
-	var defaultEthernetFlowKey FlowKey
-	if f.FlowKeys[OVS_KEY_ATTR_ETHERNET] == nil {
-		defaultEthernetFlowKey = NewEthernetFlowKey()
-	}
-
-	msg.PutNestedAttrs(OVS_FLOW_ATTR_KEY, func() {
-		for _, k := range f.FlowKeys {
-			if !k.Ignored() {
-				k.putKeyNlAttr(msg)
-			}
-		}
-
-		if defaultEthernetFlowKey != nil {
-			defaultEthernetFlowKey.putKeyNlAttr(msg)
-		}
-	})
-
-	msg.PutNestedAttrs(OVS_FLOW_ATTR_MASK, func() {
-		for _, k := range f.FlowKeys {
-			if !k.Ignored() {
-				k.putMaskNlAttr(msg)
-			}
-		}
-
-		if defaultEthernetFlowKey != nil {
-			defaultEthernetFlowKey.putMaskNlAttr(msg)
-		}
-	})
-
-	// ACTIONS is required
+	f.FlowKeys.toNlAttrs(msg)
 	msg.PutNestedAttrs(OVS_FLOW_ATTR_ACTIONS, func() {
 		for _, a := range f.Actions {
 			a.toNlAttr(msg)
@@ -1155,13 +1157,26 @@ func (dp DatapathHandle) CreateFlow(f FlowSpec) error {
 	return err
 }
 
-func (dp DatapathHandle) DeleteFlow(f FlowSpec) error {
+func (dp DatapathHandle) DeleteFlow(fks FlowKeys) error {
 	dpif := dp.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_DEL, OVS_FLOW_VERSION)
 	req.putOvsHeader(dp.ifindex)
-	f.toNlAttrs(req)
+	fks.toNlAttrs(req)
+
+	_, err := dpif.sock.Request(req)
+	return err
+}
+
+func (dp DatapathHandle) ClearFlow(fks FlowKeys) error {
+	dpif := dp.dpif
+
+	req := NewNlMsgBuilder(RequestFlags, dpif.families[FLOW].id)
+	req.PutGenlMsghdr(OVS_FLOW_CMD_SET, OVS_FLOW_VERSION)
+	req.putOvsHeader(dp.ifindex)
+	fks.toNlAttrs(req)
+	req.PutEmptyAttr(OVS_FLOW_ATTR_CLEAR)
 
 	_, err := dpif.sock.Request(req)
 	return err
@@ -1175,6 +1190,7 @@ type FlowInfo struct {
 	FlowSpec
 	Packets uint64
 	Bytes   uint64
+	Used    uint64
 }
 
 func parseFlowInfo(attrs Attrs) (fi FlowInfo, err error) {
@@ -1193,6 +1209,13 @@ func parseFlowInfo(attrs Attrs) (fi FlowInfo, err error) {
 		stats := ovsFlowStatsAt(statsBytes, 0)
 		fi.Packets = stats.NPackets
 		fi.Bytes = stats.NBytes
+	}
+
+	used, usedPresent, err := attrs.GetOptionalUint64(OVS_FLOW_ATTR_USED)
+	if err != nil {
+		return
+	} else if usedPresent {
+		fi.Used = used
 	}
 
 	return

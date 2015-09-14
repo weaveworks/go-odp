@@ -211,6 +211,10 @@ var commands = subcommands{
 			"<datapath> <options>...", "Delete flow",
 			deleteFlow,
 		},
+		"clear": command{
+			"<datapath> <options>...", "Clear flow stats",
+			clearFlow,
+		},
 		"list": command{
 			"<datapath>", "List flows",
 			listFlows,
@@ -994,7 +998,31 @@ func deleteFlow(f Flags) bool {
 		return false
 	}
 
-	err = dp.DeleteFlow(flow)
+	err = dp.DeleteFlow(flow.FlowKeys)
+	if err != nil {
+		if odp.IsNoSuchFlowError(err) {
+			return printErr("No such flow")
+		} else {
+			return printErr("%s", err)
+		}
+	}
+
+	return true
+}
+
+func clearFlow(f Flags) bool {
+	dpif, err := odp.NewDpif()
+	if err != nil {
+		return printErr("%s", err)
+	}
+	defer dpif.Close()
+
+	dp, flow, ok := flagsToFlowSpec(f, dpif)
+	if !ok {
+		return false
+	}
+
+	err = dp.ClearFlow(flow.FlowKeys)
 	if err != nil {
 		if odp.IsNoSuchFlowError(err) {
 			return printErr("No such flow")
@@ -1041,8 +1069,8 @@ func listFlows(f Flags) bool {
 		}
 
 		if showStats {
-			fmt.Printf(": %d packets, %d bytes", flow.Packets,
-				flow.Bytes)
+			fmt.Printf(": %d packets, %d bytes, used %d",
+				flow.Packets, flow.Bytes, flow.Used)
 		}
 
 		os.Stdout.WriteString("\n")
