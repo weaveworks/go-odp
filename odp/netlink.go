@@ -63,7 +63,13 @@ func (s *NetlinkSocket) PortId() uint32 {
 }
 
 func (s *NetlinkSocket) Close() error {
-	return syscall.Close(s.fd)
+	if s.fd < 0 {
+		return nil
+	}
+
+	err := syscall.Close(s.fd)
+	s.fd = -1
+	return err
 }
 
 type NlMsgBuilder struct {

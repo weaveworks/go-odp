@@ -128,12 +128,7 @@ func (dpif *Dpif) getMCGroup(family int, name string) (uint32, error) {
 }
 
 func (dpif *Dpif) Close() error {
-	if dpif.sock == nil {
-		return nil
-	}
-	err := dpif.sock.Close()
-	dpif.sock = nil
-	return err
+	return dpif.sock.Close()
 }
 
 func (nlmsg *NlMsgBuilder) putOvsHeader(ifindex int32) {
@@ -167,4 +162,16 @@ func (dpif *Dpif) checkNlMsgHeaders(msg *NlMsgParser, family int, cmd int) (*Gen
 	}
 
 	return genlhdr, ovshdr, nil
+}
+
+type Cancelable interface {
+	Cancel() error
+}
+
+type cancelableDpif struct {
+	*Dpif
+}
+
+func (dpif cancelableDpif) Cancel() error {
+	return dpif.Close()
 }

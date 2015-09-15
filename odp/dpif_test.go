@@ -3,6 +3,7 @@ package odp
 import (
 	"fmt"
 	"math/rand"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -394,4 +395,43 @@ func TestEnumerateFlows(t *testing.T) {
 	if len(eflows) != 0 {
 		t.Fatal()
 	}
+}
+
+func TestConsumeVportEvents(t *testing.T) {
+	dpif, err := NewDpif()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	ch := make(chan error)
+	cancel, err := dpif.ConsumeVportEvents(vportTestConsumer{ch})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cancel.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+
+	if <-ch != syscall.EBADF {
+		t.Fatal()
+	}
+}
+
+type vportTestConsumer struct {
+	ch chan error
+}
+
+func (vportTestConsumer) VportCreated(ifindex int32, vport Vport) error {
+	return nil
+}
+
+func (vportTestConsumer) VportDeleted(ifindex int32, vport Vport) error {
+	return nil
+}
+
+func (consumer vportTestConsumer) Error(err error, stopped bool) {
+	consumer.ch <- err
 }

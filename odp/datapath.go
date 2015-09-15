@@ -35,6 +35,11 @@ func (dp DatapathHandle) IfIndex() int32 {
 	return dp.ifindex
 }
 
+func (dp DatapathHandle) Reopen() (DatapathHandle, error) {
+	dpif, err := dp.dpif.Reopen()
+	return DatapathHandle{dpif: dpif, ifindex: dp.ifindex}, err
+}
+
 func (dpif *Dpif) CreateDatapath(name string) (DatapathHandle, error) {
 	var features uint32 = OVS_DP_F_UNALIGNED | OVS_DP_F_VPORT_PIDS
 

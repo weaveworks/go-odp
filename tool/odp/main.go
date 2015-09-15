@@ -335,7 +335,8 @@ func listenOnDatapath(f Flags) bool {
 	}
 
 	done := make(chan struct{})
-	if err := dp.ConsumeMisses(missConsumer{consumer{done}, miss}); err != nil {
+	_, err = dp.ConsumeMisses(missConsumer{consumer{done}, miss})
+	if err != nil {
 		return printErr("%s", err)
 	}
 
@@ -574,7 +575,8 @@ func listenForVports(f Flags) bool {
 	defer dpif.Close()
 
 	done := make(chan struct{})
-	if err := dpif.ConsumeVportEvents(vportEventsConsumer{dpif, consumer{done}}); err != nil {
+	_, err = dpif.ConsumeVportEvents(vportEventsConsumer{dpif, consumer{done}})
+	if err != nil {
 		return printErr("%s", err)
 	}
 
@@ -587,7 +589,7 @@ type vportEventsConsumer struct {
 	consumer
 }
 
-func (c vportEventsConsumer) New(ifindex int32, vport odp.Vport) error {
+func (c vportEventsConsumer) VportCreated(ifindex int32, vport odp.Vport) error {
 	dp, err := c.dpif.LookupDatapathByIndex(ifindex)
 	if err != nil {
 		return err
@@ -597,7 +599,7 @@ func (c vportEventsConsumer) New(ifindex int32, vport odp.Vport) error {
 	return nil
 }
 
-func (c vportEventsConsumer) Delete(ifindex int32, vport odp.Vport) error {
+func (c vportEventsConsumer) VportDeleted(ifindex int32, vport odp.Vport) error {
 	dp, err := c.dpif.LookupDatapathByIndex(ifindex)
 	if err != nil {
 		return err

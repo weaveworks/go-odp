@@ -301,32 +301,46 @@ func (dp DatapathHandle) setVportUpcallPortId(id VportID, pid uint32) error {
 }
 
 type VportEventsConsumer interface {
-	New(ifindex int32, vport Vport) error
-	Delete(ifindex int32, vport Vport) error
+	VportCreated(ifindex int32, vport Vport) error
+	VportDeleted(ifindex int32, vport Vport) error
 	Error(err error, stopped bool)
 }
 
-func (dpif *Dpif) ConsumeVportEvents(consumer VportEventsConsumer) error {
-	sock, err := OpenNetlinkSocket(syscall.NETLINK_GENERIC)
-	if err != nil {
-		return err
-	}
-
-	mcGroup, err := dpif.getMCGroup(VPORT, "ovs_vport")
-	if err != nil {
-		return err
-	}
-
-	go consumeVportEvents(dpif, sock, consumer)
-	return syscall.SetsockoptInt(sock.fd, SOL_NETLINK, syscall.NETLINK_ADD_MEMBERSHIP, int(mcGroup))
+func (dpif *Dpif) ConsumeVportEvents(consumer VportEventsConsumer) (Cancelable, error) {
+	return DatapathHandle{dpif, -1}.ConsumeVportEvents(consumer)
 }
 
-func consumeVportEvents(dpif *Dpif, sock *NetlinkSocket, consumer VportEventsConsumer) {
-	defer sock.Close()
-	sock.consume(consumer, func(msg *NlMsgParser) error {
+func (dp DatapathHandle) ConsumeVportEvents(consumer VportEventsConsumer) (Cancelable, error) {
+	mcGroup, err := dp.dpif.getMCGroup(VPORT, "ovs_vport")
+	if err != nil {
+		return nil, err
+	}
+
+	consumeDpif, err := dp.dpif.Reopen()
+	if err != nil {
+		return nil, err
+	}
+
+	err = syscall.SetsockoptInt(consumeDpif.sock.fd, SOL_NETLINK, syscall.NETLINK_ADD_MEMBERSHIP, int(mcGroup))
+	if err != nil {
+		consumeDpif.Close()
+		return nil, err
+	}
+
+	go consumeDpif.consumeVportEvents(consumer, dp.ifindex)
+	return cancelableDpif{consumeDpif}, nil
+}
+
+func (dpif *Dpif) consumeVportEvents(consumer VportEventsConsumer, ifindex int32) {
+	dpif.sock.consume(consumer, func(msg *NlMsgParser) error {
 		genlhdr, ovshdr, err := dpif.checkNlMsgHeaders(msg, VPORT, -1)
 		if err != nil {
 			return err
+		}
+
+		// filter by ifindex, if consuming on a specific datapath
+		if ifindex >= 0 && ovshdr.DpIfIndex != ifindex {
+			return nil
 		}
 
 		id, spec, err := parseVport(msg)
@@ -336,10 +350,10 @@ func consumeVportEvents(dpif *Dpif, sock *NetlinkSocket, consumer VportEventsCon
 
 		switch genlhdr.Cmd {
 		case OVS_VPORT_CMD_NEW:
-			return consumer.New(ovshdr.DpIfIndex, Vport{id, spec})
+			return consumer.VportCreated(ovshdr.DpIfIndex, Vport{id, spec})
 
 		case OVS_VPORT_CMD_DEL:
-			return consumer.Delete(ovshdr.DpIfIndex, Vport{id, spec})
+			return consumer.VportDeleted(ovshdr.DpIfIndex, Vport{id, spec})
 
 		default:
 			return nil
