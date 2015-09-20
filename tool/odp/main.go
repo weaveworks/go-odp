@@ -1024,7 +1024,7 @@ func clearFlow(f Flags) bool {
 		return false
 	}
 
-	err = dp.ClearFlow(flow.FlowKeys)
+	err = dp.ClearFlow(flow)
 	if err != nil {
 		if odp.IsNoSuchFlowError(err) {
 			return printErr("No such flow")

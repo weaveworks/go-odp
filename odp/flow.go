@@ -1169,13 +1169,13 @@ func (dp DatapathHandle) DeleteFlow(fks FlowKeys) error {
 	return err
 }
 
-func (dp DatapathHandle) ClearFlow(fks FlowKeys) error {
+func (dp DatapathHandle) ClearFlow(f FlowSpec) error {
 	dpif := dp.dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_SET, OVS_FLOW_VERSION)
 	req.putOvsHeader(dp.ifindex)
-	fks.toNlAttrs(req)
+	f.toNlAttrs(req)
 	req.PutEmptyAttr(OVS_FLOW_ATTR_CLEAR)
 
 	_, err := dpif.sock.Request(req)
