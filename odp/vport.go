@@ -2,6 +2,7 @@ package odp
 
 import (
 	"fmt"
+	"encoding/json"
 	"syscall"
 )
 
@@ -359,4 +360,15 @@ func (dpif *Dpif) consumeVportEvents(consumer VportEventsConsumer, ifindex int32
 			return nil
 		}
 	})
+}
+
+func (vport *Vport) MarshalJSON() ([]byte, error) {
+	type jsonVport struct {
+		ID VportID
+		Name string
+		TypeName string
+	}
+
+	return json.Marshal(&jsonVport{vport.ID, vport.Spec.Name(),
+		vport.Spec.TypeName()})
 }
