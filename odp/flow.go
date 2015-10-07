@@ -2,6 +2,7 @@ package odp
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -612,7 +613,7 @@ type TunnelFlowKey struct {
 func (fk TunnelFlowKey) String() string {
 	var buf bytes.Buffer
 	var sep string
-	fmt.Fprint(&buf, "TunnelFlowKey(")
+	fmt.Fprint(&buf, "TunnelFlowKey{")
 
 	printMaskedBytes(&buf, &sep, "id", fk.key.TunnelId[:],
 		fk.mask.TunnelId[:], hex.EncodeToString)
@@ -1250,4 +1251,29 @@ func (dp DatapathHandle) EnumerateFlows() ([]FlowInfo, error) {
 	}
 
 	return res, nil
+}
+
+func (flowInfo *FlowInfo) MarshalJSON() ([]byte, error) {
+	type jsonFlowInfo struct {
+		FlowKeys []string
+		Actions  []string
+		Packets  uint64
+		Bytes    uint64
+		Used     uint64
+	}
+
+	flowKeys := make([]string, 0, len(flowInfo.FlowKeys))
+	for _, flowKey := range flowInfo.FlowKeys {
+		if !flowKey.Ignored() {
+			flowKeys = append(flowKeys, fmt.Sprint(flowKey))
+		}
+	}
+
+	actions := make([]string, 0, len(flowInfo.Actions))
+	for _, action := range flowInfo.Actions {
+		actions = append(actions, fmt.Sprint(action))
+	}
+
+	return json.Marshal(&jsonFlowInfo{flowKeys, actions,
+		flowInfo.Packets, flowInfo.Bytes, flowInfo.Used})
 }
