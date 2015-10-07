@@ -613,7 +613,7 @@ type TunnelFlowKey struct {
 func (fk TunnelFlowKey) String() string {
 	var buf bytes.Buffer
 	var sep string
-	fmt.Fprint(&buf, "TunnelFlowKey(")
+	fmt.Fprint(&buf, "TunnelFlowKey{")
 
 	printMaskedBytes(&buf, &sep, "id", fk.key.TunnelId[:],
 		fk.mask.TunnelId[:], hex.EncodeToString)
