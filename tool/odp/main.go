@@ -260,10 +260,10 @@ func lookupDatapath(dpif *odp.Dpif, name string) (*odp.DatapathHandle, string) {
 		return nil, ""
 	}
 
-	// If the name is a number, try to use it as an ifindex
+	// If the name is a number, try to use it as an id
 	ifindex, err := strconv.ParseUint(name, 10, 32)
 	if err == nil {
-		dp, err := dpif.LookupDatapathByIndex(int32(ifindex))
+		dp, err := dpif.LookupDatapathByID(odp.DatapathID(ifindex))
 		if err == nil {
 			return &dp.Handle, dp.Name
 		}
@@ -441,7 +441,7 @@ func listDatapaths(f Flags) bool {
 
 	dps, err := dpif.EnumerateDatapaths()
 	for name, dp := range dps {
-		fmt.Printf("%d: %s\n", dp.IfIndex(), name)
+		fmt.Printf("%d: %s\n", dp.ID(), name)
 	}
 
 	return true
@@ -589,8 +589,8 @@ type vportEventsConsumer struct {
 	consumer
 }
 
-func (c vportEventsConsumer) VportCreated(ifindex int32, vport odp.Vport) error {
-	dp, err := c.dpif.LookupDatapathByIndex(ifindex)
+func (c vportEventsConsumer) VportCreated(dpid odp.DatapathID, vport odp.Vport) error {
+	dp, err := c.dpif.LookupDatapathByID(dpid)
 	if err != nil {
 		return err
 	}
@@ -599,8 +599,8 @@ func (c vportEventsConsumer) VportCreated(ifindex int32, vport odp.Vport) error 
 	return nil
 }
 
-func (c vportEventsConsumer) VportDeleted(ifindex int32, vport odp.Vport) error {
-	dp, err := c.dpif.LookupDatapathByIndex(ifindex)
+func (c vportEventsConsumer) VportDeleted(dpid odp.DatapathID, vport odp.Vport) error {
+	dp, err := c.dpif.LookupDatapathByID(dpid)
 	if err != nil {
 		return err
 	}

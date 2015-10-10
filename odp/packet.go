@@ -105,11 +105,11 @@ func (c *missVportConsumer) setVportUpcallPortId(vport VportID) error {
 	return nil
 }
 
-func (c *missVportConsumer) VportCreated(ifindex int32, vport Vport) error {
+func (c *missVportConsumer) VportCreated(dpid DatapathID, vport Vport) error {
 	return c.setVportUpcallPortId(vport.ID)
 }
 
-func (c *missVportConsumer) VportDeleted(ifindex int32, vport Vport) error {
+func (c *missVportConsumer) VportDeleted(dpid DatapathID, vport Vport) error {
 	c.lock.Lock()
 	delete(c.vportsDone, vport.ID)
 	c.lock.Unlock()

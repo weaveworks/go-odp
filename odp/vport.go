@@ -177,7 +177,7 @@ type Vport struct {
 	Spec VportSpec
 }
 
-func lookupVport(dpif *Dpif, dpifindex int32, name string) (int32, Vport, error) {
+func lookupVport(dpif *Dpif, dpifindex DatapathID, name string) (DatapathID, Vport, error) {
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[VPORT].id)
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
 	req.putOvsHeader(dpifindex)
@@ -198,7 +198,7 @@ func lookupVport(dpif *Dpif, dpifindex int32, name string) (int32, Vport, error)
 		return 0, Vport{}, err
 	}
 
-	return ovshdr.DpIfIndex, Vport{id, s}, nil
+	return ovshdr.datapathID(), Vport{id, s}, nil
 }
 
 func (dpif *Dpif) LookupVportByName(name string) (DatapathHandle, Vport, error) {
@@ -301,8 +301,8 @@ func (dp DatapathHandle) setVportUpcallPortId(id VportID, pid uint32) error {
 }
 
 type VportEventsConsumer interface {
-	VportCreated(ifindex int32, vport Vport) error
-	VportDeleted(ifindex int32, vport Vport) error
+	VportCreated(dpid DatapathID, vport Vport) error
+	VportDeleted(dpid DatapathID, vport Vport) error
 	Error(err error, stopped bool)
 }
 
@@ -331,7 +331,7 @@ func (dp DatapathHandle) ConsumeVportEvents(consumer VportEventsConsumer) (Cance
 	return cancelableDpif{consumeDpif}, nil
 }
 
-func (dpif *Dpif) consumeVportEvents(consumer VportEventsConsumer, ifindex int32) {
+func (dpif *Dpif) consumeVportEvents(consumer VportEventsConsumer, ifindex DatapathID) {
 	dpif.sock.consume(consumer, func(msg *NlMsgParser) error {
 		genlhdr, ovshdr, err := dpif.checkNlMsgHeaders(msg, VPORT, -1)
 		if err != nil {
@@ -339,7 +339,7 @@ func (dpif *Dpif) consumeVportEvents(consumer VportEventsConsumer, ifindex int32
 		}
 
 		// filter by ifindex, if consuming on a specific datapath
-		if ifindex >= 0 && ovshdr.DpIfIndex != ifindex {
+		if ifindex >= 0 && ovshdr.datapathID() != ifindex {
 			return nil
 		}
 
@@ -350,10 +350,10 @@ func (dpif *Dpif) consumeVportEvents(consumer VportEventsConsumer, ifindex int32
 
 		switch genlhdr.Cmd {
 		case OVS_VPORT_CMD_NEW:
-			return consumer.VportCreated(ovshdr.DpIfIndex, Vport{id, spec})
+			return consumer.VportCreated(ovshdr.datapathID(), Vport{id, spec})
 
 		case OVS_VPORT_CMD_DEL:
-			return consumer.VportDeleted(ovshdr.DpIfIndex, Vport{id, spec})
+			return consumer.VportDeleted(ovshdr.datapathID(), Vport{id, spec})
 
 		default:
 			return nil

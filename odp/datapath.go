@@ -5,8 +5,11 @@ import (
 	"syscall"
 )
 
+// Datapaths are identified by the ifindex of their netdev.
+type DatapathID int32
+
 type datapathInfo struct {
-	ifindex int32
+	ifindex DatapathID
 	name    string
 }
 
@@ -16,7 +19,7 @@ func (dpif *Dpif) parseDatapathInfo(msg *NlMsgParser) (res datapathInfo, err err
 		return
 	}
 
-	res.ifindex = ovshdr.DpIfIndex
+	res.ifindex = ovshdr.datapathID()
 	attrs, err := msg.TakeAttrs()
 	if err != nil {
 		return
@@ -28,10 +31,10 @@ func (dpif *Dpif) parseDatapathInfo(msg *NlMsgParser) (res datapathInfo, err err
 
 type DatapathHandle struct {
 	dpif    *Dpif
-	ifindex int32
+	ifindex DatapathID
 }
 
-func (dp DatapathHandle) IfIndex() int32 {
+func (dp DatapathHandle) ID() DatapathID {
 	return dp.ifindex
 }
 
@@ -91,7 +94,7 @@ type Datapath struct {
 	Name   string
 }
 
-func (dpif *Dpif) LookupDatapathByIndex(ifindex int32) (Datapath, error) {
+func (dpif *Dpif) LookupDatapathByID(ifindex DatapathID) (Datapath, error) {
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[DATAPATH].id)
 	req.PutGenlMsghdr(OVS_DP_CMD_GET, OVS_DATAPATH_VERSION)
 	req.putOvsHeader(ifindex)
@@ -161,8 +164,8 @@ func (dp DatapathHandle) checkNlMsgHeaders(msg *NlMsgParser, family int, cmd int
 		return err
 	}
 
-	if ovshdr.DpIfIndex != dp.ifindex {
-		return fmt.Errorf("wrong datapath ifindex received (got %d, expected %d)", ovshdr.DpIfIndex, dp.ifindex)
+	if ovshdr.datapathID() != dp.ifindex {
+		return fmt.Errorf("wrong datapath ifindex received (got %d, expected %d)", ovshdr.datapathID(), dp.ifindex)
 	}
 
 	return nil

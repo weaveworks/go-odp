@@ -131,10 +131,10 @@ func (dpif *Dpif) Close() error {
 	return dpif.sock.Close()
 }
 
-func (nlmsg *NlMsgBuilder) putOvsHeader(ifindex int32) {
+func (nlmsg *NlMsgBuilder) putOvsHeader(ifindex DatapathID) {
 	pos := nlmsg.AlignGrow(syscall.NLMSG_ALIGNTO, SizeofOvsHeader)
 	h := ovsHeaderAt(nlmsg.buf, pos)
-	h.DpIfIndex = ifindex
+	h.DpIfIndex = int32(ifindex)
 }
 
 func (nlmsg *NlMsgParser) takeOvsHeader() (*OvsHeader, error) {
@@ -144,6 +144,10 @@ func (nlmsg *NlMsgParser) takeOvsHeader() (*OvsHeader, error) {
 	}
 
 	return ovsHeaderAt(nlmsg.data, pos), nil
+}
+
+func (ovshdr OvsHeader) datapathID() DatapathID {
+	return DatapathID(ovshdr.DpIfIndex)
 }
 
 func (dpif *Dpif) checkNlMsgHeaders(msg *NlMsgParser, family int, cmd int) (*GenlMsghdr, *OvsHeader, error) {
