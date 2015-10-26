@@ -164,6 +164,11 @@ const ( // ovs_key_attr
 	OVS_KEY_ATTR_TCP_FLAGS = 18
 	OVS_KEY_ATTR_DP_HASH   = 19
 	OVS_KEY_ATTR_RECIRC_ID = 20
+	OVS_KEY_ATTR_MPLS      = 21
+	OVS_KEY_ATTR_CT_STATE  = 22
+	OVS_KEY_ATTR_CT_ZONE   = 23
+	OVS_KEY_ATTR_CT_MARK   = 24
+	OVS_KEY_ATTR_CT_LABELS = 25
 )
 
 const ( // ovs_tunnel_key_attr

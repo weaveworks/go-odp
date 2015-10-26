@@ -810,6 +810,7 @@ var flowKeyParsers = FlowKeyParsers{
 	OVS_KEY_ATTR_DP_HASH:   blobFlowKeyParser(4, nil),
 	OVS_KEY_ATTR_TCP_FLAGS: blobFlowKeyParser(2, nil),
 	OVS_KEY_ATTR_RECIRC_ID: blobFlowKeyParser(4, nil),
+	OVS_KEY_ATTR_CT_STATE:  blobFlowKeyParser(4, nil),
 
 	OVS_KEY_ATTR_TUNNEL: FlowKeyParser{
 		parse:      parseTunnelFlowKey,
