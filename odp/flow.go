@@ -21,7 +21,7 @@ func AllBytes(data []byte, x byte) bool {
 type FlowKey interface {
 	typeId() uint16
 	putKeyNlAttr(*NlMsgBuilder)
-	putMaskNlAttr(*NlMsgBuilder)
+	putMaskNlAttr(*NlMsgBuilder) error
 	Ignored() bool
 	Equals(FlowKey) bool
 }
@@ -52,7 +52,7 @@ func (a FlowKeys) Equals(b FlowKeys) bool {
 	return true
 }
 
-func (fks FlowKeys) toNlAttrs(msg *NlMsgBuilder) {
+func (fks FlowKeys) toNlAttrs(msg *NlMsgBuilder) error {
 	// The ethernet flow key is mandatory, even if it is
 	// completely wildcarded.
 	var defaultEthernetFlowKey FlowKey
@@ -72,10 +72,13 @@ func (fks FlowKeys) toNlAttrs(msg *NlMsgBuilder) {
 		}
 	})
 
+	var err error
 	msg.PutNestedAttrs(OVS_FLOW_ATTR_MASK, func() {
 		for _, k := range fks {
 			if !k.Ignored() {
-				k.putMaskNlAttr(msg)
+				if e := k.putMaskNlAttr(msg); e != nil {
+					err = e
+				}
 			}
 		}
 
@@ -83,6 +86,8 @@ func (fks FlowKeys) toNlAttrs(msg *NlMsgBuilder) {
 			defaultEthernetFlowKey.putMaskNlAttr(msg)
 		}
 	})
+
+	return err
 }
 
 // A FlowKeyParser describes how to parse a flow key of a particular
@@ -93,10 +98,12 @@ type FlowKeyParser struct {
 	// key may be nil if the relevant attribute wasn't provided.
 	// This generally means that the mask will indicate that the
 	// flow key is Ignored.
-	parse func(typ uint16, key []byte, mask []byte) (FlowKey, error)
+	parse func(typ uint16, key []byte, mask []byte, exact bool) (FlowKey, error)
 
 	// Special mask values indicating that the flow key is an
-	// exact match or Ignored.
+	// exact match or Ignored.  The parse function also receives
+	// an "exact" flag, to handle cases where the representation
+	// of the mask of awkward.
 	exactMask  []byte
 	ignoreMask []byte
 }
@@ -110,14 +117,16 @@ func ParseFlowKeys(keys Attrs, masks Attrs) (res FlowKeys, err error) {
 	for typ, key := range keys {
 		parser, ok := flowKeyParsers[typ]
 		if !ok {
-			return nil, fmt.Errorf("unknown flow key type %d (value %v)", typ, key)
+			parser = FlowKeyParser{parse: parseUnknownFlowKey}
 		}
 
 		var mask []byte
+		exact := false
 		if masks == nil {
 			// "OVS_FLOW_ATTR_MASK: ... If not present,
 			// all flow key bits are exact match bits."
 			mask = parser.exactMask
+			exact = true
 		} else {
 			// "Omitting attribute is treated as
 			// wildcarding all corresponding fields"
@@ -127,7 +136,7 @@ func ParseFlowKeys(keys Attrs, masks Attrs) (res FlowKeys, err error) {
 			}
 		}
 
-		res[typ], err = parser.parse(typ, key, mask)
+		res[typ], err = parser.parse(typ, key, mask, exact)
 		if err != nil {
 			return nil, err
 		}
@@ -144,10 +153,10 @@ func ParseFlowKeys(keys Attrs, masks Attrs) (res FlowKeys, err error) {
 			// key value
 			parser, ok := flowKeyParsers[typ]
 			if !ok {
-				return nil, fmt.Errorf("unknown flow key type %d (mask %v)", typ, mask)
+				parser = FlowKeyParser{parse: parseUnknownFlowKey}
 			}
 
-			res[typ], err = parser.parse(typ, nil, mask)
+			res[typ], err = parser.parse(typ, nil, mask, false)
 			if err != nil {
 				return nil, err
 			}
@@ -157,9 +166,78 @@ func ParseFlowKeys(keys Attrs, masks Attrs) (res FlowKeys, err error) {
 	return res, nil
 }
 
-// Most flow keys can be handled as opaque bytes.  Doing so avoids
-// repetition.
+// A flow key of a type we don't know about
+type UnknownFlowKey struct {
+	typ   uint16
+	key   []byte
+	mask  []byte // nil means ignored
+	exact bool
+}
 
+func parseUnknownFlowKey(typ uint16, key []byte, mask []byte, exact bool) (FlowKey, error) {
+	return UnknownFlowKey{typ: typ, key: key, mask: mask, exact: exact}, nil
+}
+
+func (key UnknownFlowKey) String() string {
+	var mask string
+	switch {
+	case key.exact:
+		mask = "exact"
+	case key.mask == nil:
+		mask = "ignored"
+	default:
+		mask = hex.EncodeToString(key.mask)
+	}
+
+	return fmt.Sprintf("UnknownFlowKey{type: %d, key: %s, mask: %s}",
+		key.typ, hex.EncodeToString(key.key), mask)
+}
+
+func (key UnknownFlowKey) typeId() uint16 {
+	return key.typ
+}
+
+func (key UnknownFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
+	msg.PutSliceAttr(key.typ, key.key)
+}
+
+func (key UnknownFlowKey) putMaskNlAttr(msg *NlMsgBuilder) error {
+	if key.exact {
+		return fmt.Errorf("cannot serialize exact mask for unknown flow key of type %d", key.typ)
+	}
+
+	if key.mask != nil {
+		msg.PutSliceAttr(key.typ, key.mask)
+	}
+
+	return nil
+}
+
+func (key UnknownFlowKey) Ignored() bool {
+	return key.mask == nil && !key.exact
+}
+
+func (a UnknownFlowKey) Equals(gb FlowKey) bool {
+	b, ok := gb.(UnknownFlowKey)
+	if !ok {
+		return false
+	}
+
+	if a.typ != b.typ || !bytes.Equal(a.key, b.key) {
+		return false
+	}
+
+	switch {
+	case a.exact:
+		return b.exact
+	case a.mask == nil:
+		return b.mask == nil
+	default:
+		return bytes.Equal(a.mask, b.mask)
+	}
+}
+
+// Most flow keys can be handled as opaque bytes.
 type BlobFlowKey struct {
 	typ uint16
 
@@ -198,8 +276,9 @@ func (key BlobFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
 	msg.PutSliceAttr(key.typ, key.key())
 }
 
-func (key BlobFlowKey) putMaskNlAttr(msg *NlMsgBuilder) {
+func (key BlobFlowKey) putMaskNlAttr(msg *NlMsgBuilder) error {
 	msg.PutSliceAttr(key.typ, key.mask())
+	return nil
 }
 
 func (key BlobFlowKey) Ignored() bool {
@@ -209,12 +288,12 @@ func (key BlobFlowKey) Ignored() bool {
 // Go's anonymous struct fields are not quite a replacement for
 // inheritance.  We want to have an Equals method for BlobFlowKeys,
 // that works even when BlobFlowKeys are embedded as anonymous struct
-// fields.  But we can use a straightforware type assertion to tell if
-// another FlowKey is also a BlobFlowKey, because in the embedded
+// fields.  But we can't use a straightforward type assertion to tell
+// if another FlowKey is also a BlobFlowKey, because in the embedded
 // case, it will say that the FlowKey is not an BlobFlowKey (the "has
 // an anonymoys field of X" is not an "is a X" relation).  To work
 // around this, we use an interface, implemented by BlobFlowKey, that
-// automatically ges promoted to all structs that embed BlobFlowKey.
+// automatically gets promoted to all structs that embed BlobFlowKey.
 
 type BlobFlowKeyish interface {
 	toBlobFlowKey() BlobFlowKey
@@ -228,6 +307,10 @@ func (a BlobFlowKey) Equals(gb FlowKey) bool {
 		return false
 	}
 	b := bx.toBlobFlowKey()
+
+	if a.typ != b.typ {
+		return false
+	}
 
 	size := len(a.keyMask)
 	if len(b.keyMask) != size {
@@ -281,7 +364,7 @@ func blobFlowKeyParser(size int, wrap func(BlobFlowKey) FlowKey) FlowKeyParser {
 	}
 
 	return FlowKeyParser{
-		parse: func(typ uint16, key []byte, mask []byte) (FlowKey, error) {
+		parse: func(typ uint16, key []byte, mask []byte, exact bool) (FlowKey, error) {
 			bfk, err := parseBlobFlowKey(typ, key, mask, size)
 			if err != nil {
 				return nil, err
@@ -311,7 +394,7 @@ type InPortFlowKey struct {
 	BlobFlowKey
 }
 
-func parseInPortFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
+func parseInPortFlowKey(typ uint16, key []byte, mask []byte, exact bool) (FlowKey, error) {
 	if !AllBytes(mask, 0xff) {
 		for i := range mask {
 			mask[i] = 0
@@ -731,10 +814,11 @@ func (key TunnelFlowKey) putKeyNlAttr(msg *NlMsgBuilder) {
 	})
 }
 
-func (key TunnelFlowKey) putMaskNlAttr(msg *NlMsgBuilder) {
+func (key TunnelFlowKey) putMaskNlAttr(msg *NlMsgBuilder) error {
 	msg.PutNestedAttrs(OVS_KEY_ATTR_TUNNEL, func() {
 		key.mask.toNlAttrs(msg, key.mask.present())
 	})
+	return nil
 }
 
 func (a TunnelFlowKey) Equals(gb FlowKey) bool {
@@ -756,7 +840,7 @@ func (key TunnelFlowKey) Ignored() bool {
 		m.TpSrc == 0 && m.TpDst == 0
 }
 
-func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
+func parseTunnelFlowKey(typ uint16, key []byte, mask []byte, exact bool) (FlowKey, error) {
 	var k, m TunnelAttrs
 	var kp TunnelAttrsPresence
 	var err error
@@ -769,8 +853,8 @@ func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
 	}
 
 	if mask != nil {
-		// We don't care about mask presence information, because a
-		// missing mask attribute means the field is
+		// We don't care about mask presence information,
+		// because a missing mask attribute means the field is
 		// wildcarded
 		m, _, err = parseTunnelAttrs(mask)
 		if err != nil {
@@ -779,7 +863,7 @@ func parseTunnelFlowKey(typ uint16, key []byte, mask []byte) (FlowKey, error) {
 	} else {
 		// mask being nil means that no mask attributes were
 		// provided, which means the mask is implicit in the
-		// key attributes provides
+		// key attributes provided
 		m = kp.mask()
 	}
 
@@ -1072,13 +1156,18 @@ func (f *FlowSpec) AddActions(as []Action) {
 	f.Actions = append(f.Actions, as...)
 }
 
-func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) {
-	f.FlowKeys.toNlAttrs(msg)
+func (f FlowSpec) toNlAttrs(msg *NlMsgBuilder) error {
+	if err := f.FlowKeys.toNlAttrs(msg); err != nil {
+		return err
+	}
+
 	msg.PutNestedAttrs(OVS_FLOW_ATTR_ACTIONS, func() {
 		for _, a := range f.Actions {
 			a.toNlAttr(msg)
 		}
 	})
+
+	return nil
 }
 
 func (a FlowSpec) Equals(b FlowSpec) bool {
@@ -1151,7 +1240,9 @@ func (dp DatapathHandle) CreateFlow(f FlowSpec) error {
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_NEW, OVS_FLOW_VERSION)
 	req.putOvsHeader(dp.ifindex)
-	f.toNlAttrs(req)
+	if err := f.toNlAttrs(req); err != nil {
+		return err
+	}
 
 	_, err := dpif.sock.Request(req)
 	return err
@@ -1163,7 +1254,9 @@ func (dp DatapathHandle) DeleteFlow(fks FlowKeys) error {
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_DEL, OVS_FLOW_VERSION)
 	req.putOvsHeader(dp.ifindex)
-	fks.toNlAttrs(req)
+	if err := fks.toNlAttrs(req); err != nil {
+		return err
+	}
 
 	_, err := dpif.sock.Request(req)
 	return err
@@ -1175,7 +1268,10 @@ func (dp DatapathHandle) ClearFlow(f FlowSpec) error {
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_SET, OVS_FLOW_VERSION)
 	req.putOvsHeader(dp.ifindex)
-	f.toNlAttrs(req)
+	if err := f.toNlAttrs(req); err != nil {
+		return err
+	}
+
 	req.PutEmptyAttr(OVS_FLOW_ATTR_CLEAR)
 
 	_, err := dpif.sock.Request(req)
