@@ -14,6 +14,7 @@ func align(n int, a int) int {
 type NetlinkSocket struct {
 	fd   int
 	addr *syscall.SockaddrNetlink
+	buf  []byte
 }
 
 func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
@@ -48,14 +49,21 @@ func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
 		return nil, err
 	}
 
-	switch nladdr := localaddr.(type) {
-	case *syscall.SockaddrNetlink:
-		success = true
-		return &NetlinkSocket{fd: fd, addr: nladdr}, nil
-
-	default:
+	nladdr, ok := localaddr.(*syscall.SockaddrNetlink)
+	if !ok {
 		return nil, fmt.Errorf("Expected netlink sockaddr, got %s", reflect.TypeOf(localaddr))
 	}
+
+	success = true
+	return &NetlinkSocket{
+		fd:   fd,
+		addr: nladdr,
+
+		// netlink messages can be bigger than this, but it
+		// seems unlikely in practice, and this is similar to
+		// the limit that the OVS userspace imposes.
+		buf: make([]byte, 65536),
+	}, nil
 }
 
 func (s *NetlinkSocket) PortId() uint32 {
@@ -541,11 +549,13 @@ func (s *NetlinkSocket) send(msg *NlMsgBuilder) (uint32, error) {
 }
 
 func (s *NetlinkSocket) recv(peer uint32) (*NlMsgParser, error) {
-	buf := MakeAlignedByteSlice(syscall.Getpagesize())
-	nr, from, err := syscall.Recvfrom(s.fd, buf, 0)
+	nr, from, err := syscall.Recvfrom(s.fd, s.buf, 0)
 	if err != nil {
 		return nil, err
 	}
+
+	buf := MakeAlignedByteSlice(nr)
+	copy(buf, s.buf)
 
 	switch nlfrom := from.(type) {
 	case *syscall.SockaddrNetlink:
@@ -553,7 +563,7 @@ func (s *NetlinkSocket) recv(peer uint32) (*NlMsgParser, error) {
 			return nil, fmt.Errorf("wrong netlink peer pid (expected %d, got %d)", peer, nlfrom.Pid)
 		}
 
-		return &NlMsgParser{data: buf[:nr], pos: 0}, nil
+		return &NlMsgParser{data: buf, pos: 0}, nil
 
 	default:
 		return nil, fmt.Errorf("Expected netlink sockaddr, got %s", reflect.TypeOf(from))
