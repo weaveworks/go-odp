@@ -527,10 +527,13 @@ func (attrs Attrs) GetOrderedAttrs(typ uint16) ([]Attr, error) {
 	if val == nil {
 		return nil, err
 	}
+	return ParseOrderedAttrs(val)
+}
 
-	parser := NlMsgParser{data: val, pos: 0}
+func ParseOrderedAttrs(data []byte) ([]Attr, error) {
+	parser := NlMsgParser{data: data, pos: 0}
 	res := make([]Attr, 0)
-	err = parser.parseAttrs(func(typ uint16, val []byte) {
+	err := parser.parseAttrs(func(typ uint16, val []byte) {
 		res = append(res, Attr{typ, val})
 	})
 

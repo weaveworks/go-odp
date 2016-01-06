@@ -919,6 +919,18 @@ type Action interface {
 	Equals(Action) bool
 }
 
+type UnknownSetAction struct {
+	typ  uint16
+	data []byte
+}
+
+func (ua UnknownSetAction) typeId() uint16             { return ua.typ }
+func (ua UnknownSetAction) toNlAttr(msg *NlMsgBuilder) {}
+func (ua UnknownSetAction) Equals(bx Action) bool      { return false }
+func (ua UnknownSetAction) String() string {
+	return fmt.Sprintf("SetAction{type: %d, data: %x}", ua.typ, ua.data)
+}
+
 type OutputAction VportID
 
 func NewOutputAction(vport VportID) OutputAction {
@@ -949,12 +961,12 @@ func (a OutputAction) Equals(bx Action) bool {
 	return a == b
 }
 
-func parseOutputAction(typ uint16, data []byte) (Action, error) {
+func parseOutputAction(typ uint16, data []byte) ([]Action, error) {
 	if len(data) < 4 {
 		return nil, fmt.Errorf("flow action type %d has wrong length (expects 4 bytes, got %d)", typ, len(data))
 	}
 
-	return OutputAction(*uint32At(data, 0)), nil
+	return []Action{OutputAction(*uint32At(data, 0))}, nil
 }
 
 type SetTunnelAction struct {
@@ -1086,39 +1098,33 @@ func (a *SetTunnelAction) SetTpDst(port uint16) {
 	a.Present.TpDst = true
 }
 
-func parseSetAction(typ uint16, data []byte) (Action, error) {
-	attrs, err := ParseNestedAttrs(data)
+func parseSetAction(typ uint16, data []byte) ([]Action, error) {
+	attrs, err := ParseOrderedAttrs(data)
 	if err != nil {
 		return nil, err
 	}
 
-	var res Action
-	first := true
-	for typ, data := range attrs {
-		if !first {
-			return nil, fmt.Errorf("multiple attributes within OVS_ACTION_ATTR_SET")
-		}
-
-		switch typ {
+	var res []Action
+	for _, attr := range attrs {
+		switch attr.typ {
 		case OVS_KEY_ATTR_TUNNEL:
-			ta, present, err := parseTunnelAttrs(data)
+			ta, present, err := parseTunnelAttrs(attr.val)
 			if err != nil {
 				return nil, err
 			}
-			res = SetTunnelAction{TunnelAttrs: ta, Present: present}
+			res = append(res, SetTunnelAction{TunnelAttrs: ta, Present: present})
 			break
 
 		default:
-			return nil, fmt.Errorf("unsupported OVS_ACTION_ATTR_SET attribute %d", typ)
+			res = append(res, UnknownSetAction{typ: attr.typ, data: attr.val})
+			break
 		}
-
-		first = false
 	}
 
 	return res, nil
 }
 
-var actionParsers = map[uint16](func(uint16, []byte) (Action, error)){
+var actionParsers = map[uint16](func(uint16, []byte) ([]Action, error)){
 	OVS_ACTION_ATTR_OUTPUT: parseOutputAction,
 	OVS_ACTION_ATTR_SET:    parseSetAction,
 }
@@ -1227,7 +1233,7 @@ func parseFlowSpec(attrs Attrs) (f FlowSpec, err error) {
 		if err != nil {
 			return f, err
 		}
-		actions = append(actions, action)
+		actions = append(actions, action...)
 	}
 
 	f.Actions = actions
