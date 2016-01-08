@@ -1136,7 +1136,7 @@ func printFlowActions(as []odp.Action, dp odp.DatapathHandle) error {
 			break
 
 		default:
-			fmt.Printf("%v", a)
+			fmt.Printf(" %v", a)
 			break
 		}
 	}

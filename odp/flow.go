@@ -1086,36 +1086,61 @@ func (a *SetTunnelAction) SetTpDst(port uint16) {
 	a.Present.TpDst = true
 }
 
+type SetUnknownAction struct {
+	typ  uint16
+	data []byte
+}
+
+func (a SetUnknownAction) String() string {
+	return fmt.Sprintf("SetUnknownAction{type: %d, data: %s}",
+		a.typ, hex.EncodeToString(a.data))
+}
+
+func (a SetUnknownAction) Equals(bx Action) bool {
+	b, ok := bx.(SetUnknownAction)
+	if !ok {
+		return false
+	}
+	return a.typ == b.typ && bytes.Equal(a.data, b.data)
+}
+
+func (a SetUnknownAction) typeId() uint16 {
+	return a.typ
+}
+
+func (a SetUnknownAction) toNlAttr(msg *NlMsgBuilder) {
+	msg.PutSliceAttr(a.typ, a.data)
+}
+
 func parseSetAction(typ uint16, data []byte) (Action, error) {
 	attrs, err := ParseNestedAttrs(data)
 	if err != nil {
 		return nil, err
 	}
 
-	var res Action
-	first := true
+	// openvswitch.h says "OVS_ACTION_ATTR_SET: Replaces the
+	// contents of an existing header.  The single nested
+	// OVS_KEY_ATTR_* attribute specifies a header to modify and
+	// its value.".  So we only expect single nested attr below.
 	for typ, data := range attrs {
-		if !first {
-			return nil, fmt.Errorf("multiple attributes within OVS_ACTION_ATTR_SET")
-		}
-
 		switch typ {
 		case OVS_KEY_ATTR_TUNNEL:
 			ta, present, err := parseTunnelAttrs(data)
 			if err != nil {
 				return nil, err
 			}
-			res = SetTunnelAction{TunnelAttrs: ta, Present: present}
-			break
+			return SetTunnelAction{
+				TunnelAttrs: ta,
+				Present:     present,
+			}, nil
 
 		default:
-			return nil, fmt.Errorf("unsupported OVS_ACTION_ATTR_SET attribute %d", typ)
+			return SetUnknownAction{typ: typ, data: data}, nil
 		}
-
-		first = false
 	}
 
-	return res, nil
+	// But just in case:
+	return SetUnknownAction{typ: 0}, nil
 }
 
 var actionParsers = map[uint16](func(uint16, []byte) (Action, error)){
