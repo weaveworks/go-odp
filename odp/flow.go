@@ -632,12 +632,16 @@ func (ta TunnelAttrs) toNlAttrs(msg *NlMsgBuilder, present TunnelAttrsPresence) 
 	}
 }
 
-func parseTunnelAttrs(data []byte) (ta TunnelAttrs, present TunnelAttrsPresence, err error) {
+func parseTunnelAttrsData(data []byte) (ta TunnelAttrs, present TunnelAttrsPresence, err error) {
 	attrs, err := ParseNestedAttrs(data)
 	if err != nil {
 		return
 	}
 
+	return parseTunnelAttrs(attrs)
+}
+
+func parseTunnelAttrs(attrs Attrs) (ta TunnelAttrs, present TunnelAttrsPresence, err error) {
 	present.TunnelId, err = attrs.GetOptionalBytes(OVS_TUNNEL_KEY_ATTR_ID, ta.TunnelId[:])
 	if err != nil {
 		return
@@ -846,7 +850,7 @@ func parseTunnelFlowKey(typ uint16, key []byte, mask []byte, exact bool) (FlowKe
 	var err error
 
 	if key != nil {
-		k, kp, err = parseTunnelAttrs(key)
+		k, kp, err = parseTunnelAttrsData(key)
 		if err != nil {
 			return nil, err
 		}
@@ -856,7 +860,7 @@ func parseTunnelFlowKey(typ uint16, key []byte, mask []byte, exact bool) (FlowKe
 		// We don't care about mask presence information,
 		// because a missing mask attribute means the field is
 		// wildcarded
-		m, _, err = parseTunnelAttrs(mask)
+		m, _, err = parseTunnelAttrsData(mask)
 		if err != nil {
 			return nil, err
 		}
@@ -1121,26 +1125,46 @@ func parseSetAction(typ uint16, data []byte) (Action, error) {
 	// openvswitch.h says "OVS_ACTION_ATTR_SET: Replaces the
 	// contents of an existing header.  The single nested
 	// OVS_KEY_ATTR_* attribute specifies a header to modify and
-	// its value.".  So we only expect single nested attr below.
-	for typ, data := range attrs {
-		switch typ {
-		case OVS_KEY_ATTR_TUNNEL:
-			ta, present, err := parseTunnelAttrs(data)
-			if err != nil {
-				return nil, err
-			}
-			return SetTunnelAction{
-				TunnelAttrs: ta,
-				Present:     present,
-			}, nil
+	// its value.".  So we only expect single nested attr.
+	//
+	// But, a kernel bug in 4.3 (fixed by kernel commit
+	// e905eabc90a5b7) means that OVS_KEY_ATTR_TUNNEL gets
+	// incorrectly encoded, so that the nested attributes directly
+	// contain the OVS_TUNNEL_KEY_ATTR attributes.  But we can
+	// detect the consequences of that bug: tunnel attributes must
+	// contain either OVS_TUNNEL_KEY_ATTR_IPV4_DST or
+	// OVS_TUNNEL_KEY_ATTR_IPV4_SRC, and the sizes of those
+	// attributes differ from the corresponding OVS_KEY_ATTR
+	// attributes.
 
-		default:
-			return SetUnknownAction{typ: typ, data: data}, nil
-		}
+	if adata := attrs[OVS_TUNNEL_KEY_ATTR_IPV4_DST]; len(adata) == 4 {
+		// Not an OVS_KEY_ATTR_PRIORITY, this is the 4.3 bug.
+		return makeSetTunnelAction(parseTunnelAttrs(attrs))
 	}
 
-	// But just in case:
+	if adata := attrs[OVS_TUNNEL_KEY_ATTR_IPV6_DST]; len(adata) == 16 {
+		// Not an OVS_KEY_ATTR_ARP, this is the 4.3 bug.
+		return makeSetTunnelAction(parseTunnelAttrs(attrs))
+	}
+
+	if adata := attrs[OVS_KEY_ATTR_TUNNEL]; adata != nil {
+		return makeSetTunnelAction(parseTunnelAttrsData(adata))
+	}
+
+	for atyp, adata := range attrs {
+		return SetUnknownAction{typ: atyp, data: adata}, nil
+	}
+
+	// Shouldn't happen, but just in case
 	return SetUnknownAction{typ: 0}, nil
+}
+
+func makeSetTunnelAction(ta TunnelAttrs, present TunnelAttrsPresence, err error) (Action, error) {
+	if err != nil {
+		return nil, err
+	}
+
+	return SetTunnelAction{TunnelAttrs: ta, Present: present}, nil
 }
 
 var actionParsers = map[uint16](func(uint16, []byte) (Action, error)){
