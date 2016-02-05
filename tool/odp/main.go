@@ -187,6 +187,11 @@ var commands = subcommands{
 					"Add vxlan vport",
 					addVxlanVport,
 				},
+				"gre": command{
+					"<datapath>",
+					"Add gre vport",
+					addGreVport,
+				},
 			},
 			"delete": command{
 				"<vport>", "Delete vport",
@@ -468,6 +473,12 @@ func addVxlanVport(f Flags) bool {
 	}
 
 	return addVport(args[0], odp.NewVxlanVportSpec(args[1], uint16(port)))
+}
+
+func addGreVport(f Flags) bool {
+	args := f.Parse(2, 2)
+
+	return addVport(args[0], odp.NewGreVportSpec(args[1]))
 }
 
 func addVport(dpname string, spec odp.VportSpec) bool {

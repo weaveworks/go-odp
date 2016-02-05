@@ -53,6 +53,29 @@ func NewInternalVportSpec(name string) VportSpec {
 	}
 }
 
+// GRE vports
+
+type GreVportSpec struct {
+	VportSpecBase
+}
+
+func (GreVportSpec) TypeName() string {
+	return "gre"
+}
+
+func (GreVportSpec) typeId() uint32 {
+	return OVS_VPORT_TYPE_GRE
+}
+
+func (v GreVportSpec) optionNlAttrs(req *NlMsgBuilder) {
+}
+
+func NewGreVportSpec(name string) VportSpec {
+	return GreVportSpec{VportSpecBase{name}}
+}
+
+// VXLAN vports
+
 type VxlanVportSpec struct {
 	VportSpecBase
 	Port uint16
@@ -124,6 +147,10 @@ func parseVport(msg *NlMsgParser) (id VportID, s VportSpec, err error) {
 
 	case OVS_VPORT_TYPE_INTERNAL:
 		s = NewInternalVportSpec(name)
+		break
+
+	case OVS_VPORT_TYPE_GRE:
+		s = NewGreVportSpec(name)
 		break
 
 	case OVS_VPORT_TYPE_VXLAN:
