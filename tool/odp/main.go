@@ -192,6 +192,11 @@ var commands = subcommands{
 					"Add gre vport",
 					addGreVport,
 				},
+				"geneve": command{
+					"<datapath>",
+					"Add geneve vport",
+					addGeneveVport,
+				},
 			},
 			"delete": command{
 				"<vport>", "Delete vport",
@@ -462,23 +467,32 @@ func addInternalVport(f Flags) bool {
 	return addVport(args[0], odp.NewInternalVportSpec(args[1]))
 }
 
-func addVxlanVport(f Flags) bool {
+func addUdpVport(f Flags, defaultPort uint, makeVportSpec func(name string, port uint16) odp.VportSpec) bool {
 	var port uint
-	// 4789 is the IANA assigned port number for VXLAN
-	f.UintVar(&port, "port", 4789, "UDP port number")
+	f.UintVar(&port, "port", defaultPort, "UDP port number")
 	args := f.Parse(2, 2)
 
 	if port > 65535 {
 		return printErr("port number too large")
 	}
 
-	return addVport(args[0], odp.NewVxlanVportSpec(args[1], uint16(port)))
+	return addVport(args[0], makeVportSpec(args[1], uint16(port)))
+}
+
+func addVxlanVport(f Flags) bool {
+	// 4789 is the IANA assigned port number for VXLAN
+	return addUdpVport(f, 4789, odp.NewVxlanVportSpec)
 }
 
 func addGreVport(f Flags) bool {
 	args := f.Parse(2, 2)
 
 	return addVport(args[0], odp.NewGreVportSpec(args[1]))
+}
+
+func addGeneveVport(f Flags) bool {
+	// 6081 is the IANA assigned port number for GENEVE
+	return addUdpVport(f, 6081, odp.NewGeneveVportSpec)
 }
 
 func addVport(dpname string, spec odp.VportSpec) bool {
@@ -627,7 +641,8 @@ func printVport(prefix string, dpname string, vport odp.Vport) {
 	switch spec := spec.(type) {
 	case odp.VxlanVportSpec:
 		fmt.Printf(" --port=%d", spec.Port)
-		break
+	case odp.GeneveVportSpec:
+		fmt.Printf(" --port=%d", spec.Port)
 	}
 
 	fmt.Printf("\n")

@@ -76,9 +76,26 @@ func NewGreVportSpec(name string) VportSpec {
 
 // VXLAN vports
 
-type VxlanVportSpec struct {
+type udpVportSpec struct {
 	VportSpecBase
 	Port uint16
+}
+
+func (v udpVportSpec) optionNlAttrs(req *NlMsgBuilder) {
+	req.PutUint16Attr(OVS_TUNNEL_ATTR_DST_PORT, v.Port)
+}
+
+func parseUdpVportSpec(name string, opts Attrs) (udpVportSpec, error) {
+	port, err := opts.GetUint16(OVS_TUNNEL_ATTR_DST_PORT)
+	if err != nil {
+		return udpVportSpec{}, err
+	}
+
+	return udpVportSpec{VportSpecBase{name}, port}, nil
+}
+
+type VxlanVportSpec struct {
+	udpVportSpec
 }
 
 func (VxlanVportSpec) TypeName() string {
@@ -89,21 +106,26 @@ func (VxlanVportSpec) typeId() uint32 {
 	return OVS_VPORT_TYPE_VXLAN
 }
 
-func (v VxlanVportSpec) optionNlAttrs(req *NlMsgBuilder) {
-	req.PutUint16Attr(OVS_TUNNEL_ATTR_DST_PORT, v.Port)
-}
-
 func NewVxlanVportSpec(name string, port uint16) VportSpec {
-	return VxlanVportSpec{VportSpecBase{name}, port}
+	return VxlanVportSpec{udpVportSpec{VportSpecBase{name}, port}}
 }
 
-func parseVxlanVportSpec(name string, opts Attrs) (VportSpec, error) {
-	port, err := opts.GetUint16(OVS_TUNNEL_ATTR_DST_PORT)
-	if err != nil {
-		return nil, err
-	}
+// GENEVE vports
 
-	return VxlanVportSpec{VportSpecBase{name}, port}, nil
+type GeneveVportSpec struct {
+	udpVportSpec
+}
+
+func (GeneveVportSpec) TypeName() string {
+	return "geneve"
+}
+
+func (GeneveVportSpec) typeId() uint32 {
+	return OVS_VPORT_TYPE_GENEVE
+}
+
+func NewGeneveVportSpec(name string, port uint16) VportSpec {
+	return GeneveVportSpec{udpVportSpec{VportSpecBase{name}, port}}
 }
 
 // Vport numbers are scoped to a particular datapath
@@ -154,7 +176,17 @@ func parseVport(msg *NlMsgParser) (id VportID, s VportSpec, err error) {
 		break
 
 	case OVS_VPORT_TYPE_VXLAN:
-		s, err = parseVxlanVportSpec(name, opts)
+		u, err := parseUdpVportSpec(name, opts)
+		if err == nil {
+			s = VxlanVportSpec{u}
+		}
+		break
+
+	case OVS_VPORT_TYPE_GENEVE:
+		u, err := parseUdpVportSpec(name, opts)
+		if err == nil {
+			s = GeneveVportSpec{u}
+		}
 		break
 
 	default:

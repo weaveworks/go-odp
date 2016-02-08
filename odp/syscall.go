@@ -109,6 +109,7 @@ const ( // ovs_vport_type
 	OVS_VPORT_TYPE_INTERNAL = 2
 	OVS_VPORT_TYPE_GRE      = 3
 	OVS_VPORT_TYPE_VXLAN    = 4
+	OVS_VPORT_TYPE_GENEVE   = 5
 )
 
 const ( // OVS_VPORT_ATTR_OPTIONS attributes for tunnels
