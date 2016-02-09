@@ -1121,22 +1121,18 @@ func printFlowKeys(fks odp.FlowKeys, dp odp.DatapathHandle) error {
 			}
 
 			fmt.Printf(" --in-port=%s", name)
-			break
 
 		case odp.EthernetFlowKey:
 			k := fk.Key()
 			m := fk.Mask()
 			printEthAddrOption("eth-src", k.EthSrc[:], m.EthSrc[:])
 			printEthAddrOption("eth-dst", k.EthDst[:], m.EthDst[:])
-			break
 
 		case odp.TunnelFlowKey:
 			printTunnelOptions(fk, "tunnel-")
-			break
 
 		default:
 			fmt.Printf(" %T:%v", fk, fk)
-			break
 		}
 	}
 
@@ -1155,15 +1151,12 @@ func printFlowActions(as []odp.Action, dp odp.DatapathHandle) error {
 			}
 
 			outputs = append(outputs, name)
-			break
 
 		case odp.SetTunnelAction:
 			printSetTunnelOptions(a)
-			break
 
 		default:
 			fmt.Printf(" %v", a)
-			break
 		}
 	}
 

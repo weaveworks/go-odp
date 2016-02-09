@@ -165,29 +165,24 @@ func parseVport(msg *NlMsgParser) (id VportID, s VportSpec, err error) {
 	switch typ {
 	case OVS_VPORT_TYPE_NETDEV:
 		s = NewNetdevVportSpec(name)
-		break
 
 	case OVS_VPORT_TYPE_INTERNAL:
 		s = NewInternalVportSpec(name)
-		break
 
 	case OVS_VPORT_TYPE_GRE:
 		s = NewGreVportSpec(name)
-		break
 
 	case OVS_VPORT_TYPE_VXLAN:
 		u, err := parseUdpVportSpec(name, opts)
 		if err == nil {
 			s = VxlanVportSpec{u}
 		}
-		break
 
 	case OVS_VPORT_TYPE_GENEVE:
 		u, err := parseUdpVportSpec(name, opts)
 		if err == nil {
 			s = GeneveVportSpec{u}
 		}
-		break
 
 	default:
 		err = fmt.Errorf("unsupported vport type %d", typ)
