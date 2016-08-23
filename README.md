@@ -182,7 +182,7 @@ being placed onto the datapath).
 
 A VXLAN port is created with
 
-    $GOPATH/bin/odp vport add vxlan --port=<port number>
+    $GOPATH/bin/odp vport add vxlan <datapath name> <vport name> --port=<port number>
 
 The `--port` option specifies the UDP port to bind to for receiving
 VXLAN packets.  The socket is not bound to a specific address (i.e. it
