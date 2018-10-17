@@ -424,11 +424,11 @@ type vportTestConsumer struct {
 	ch chan error
 }
 
-func (vportTestConsumer) VportCreated(ifindex int32, vport Vport) error {
+func (vportTestConsumer) VportCreated(ifindex DatapathID, vport Vport) error {
 	return nil
 }
 
-func (vportTestConsumer) VportDeleted(ifindex int32, vport Vport) error {
+func (vportTestConsumer) VportDeleted(ifindex DatapathID, vport Vport) error {
 	return nil
 }
 
