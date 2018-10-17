@@ -169,7 +169,7 @@ func (dpif *Dpif) checkNlMsgHeaders(msg *NlMsgParser, family int, cmd int) (*Gen
 	case FLOW:
 		genlhdr, err = msg.CheckGenlMsghdr(cmd, OVS_FLOW_CMD_NEW)
 	default:
-		genlhdr, err = msg.CheckGenlMsghdr(cmd)
+		genlhdr, err = msg.CheckGenlMsghdr(cmd, -1)
 	}
 	if err != nil {
 		return nil, nil, err
