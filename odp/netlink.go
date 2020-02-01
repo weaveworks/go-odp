@@ -2,9 +2,13 @@ package odp
 
 import (
 	"fmt"
+	"os"
 	"reflect"
+	"runtime"
 	"sync/atomic"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 func align(n int, a int) int {
@@ -15,6 +19,16 @@ type NetlinkSocket struct {
 	fd   int
 	addr *syscall.SockaddrNetlink
 	buf  []byte
+}
+
+// OpenNetlinkSocketNetNS opens a netlink socket in a specified network namespace
+func OpenNetlinkSocketNetNS(protocol, netNS int) (*NetlinkSocket, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if err := os.NewSyscallError("setns", unix.Setns(netNS, unix.CLONE_NEWNET)); err != nil {
+		return nil, err
+	}
+	return OpenNetlinkSocket(protocol)
 }
 
 func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
