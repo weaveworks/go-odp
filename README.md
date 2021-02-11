@@ -232,14 +232,14 @@ reported with:
 
     $GOPATH/bin/odp datapath listen --keys <datapath name>
 
-
 ## <a name="help"></a>Getting Help
 
 If you have any questions about, feedback for or problems with `go-odp`:
 
-- Invite yourself to the <a href="https://weaveworks.github.io/community-slack/" target="_blank"> #weave-community </a> slack channel.
-- Ask a question on the <a href="https://weave-community.slack.com/messages/general/"> #weave-community</a> slack channel.
-- Send an email to <a href="mailto:weave-users@weave.works">weave-users@weave.works</a>
-- <a href="https://github.com/weaveworks/go-odp/issues/new">File an issue.</a>
+* Invite yourself to the [Weave Users Slack](https://slack.weave.works).
+* Ask a question on the [#general](https://weave-community.slack.com/messages/general) slack channel.
+* [File an issue](https://github.com/weaveworks/go-odp/issues/new).
+
+Weaveworks follows the [CNCF Code of Conduct](https://github.com/cncf/foundation/blob/master/code-of-conduct.md). Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by contacting a Weaveworks project maintainer, or Alexis Richardson (alexis@weave.works).
 
 Your feedback is always welcome!
